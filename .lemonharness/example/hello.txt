@@ -1,0 +1,1 @@
+Hello from LemonHarness! This file is inside the controlled workspace.Appended via workspace_append tool.

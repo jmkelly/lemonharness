@@ -83,6 +83,7 @@
       "suggestAlternatives": true,
       "escalationAlertThreshold": 0.3
     },
+    "escalationAutoRetry": true,
     "skills": {
       "pseudocodeEnabled": true,
       "verifyOnLoad": true
@@ -95,6 +96,14 @@
       "enabled": true,
       "passBonus": 0.1,
       "failPenalty": 0.15
+    },
+    "visualization": {
+      "enabled": true
+    },
+    "contextBudget": {
+      "enabled": true,
+      "modelContextLimit": 128000,
+      "warnThresholds": [50, 70, 90]
     }
   }
 }

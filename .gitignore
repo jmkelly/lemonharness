@@ -1,14 +1,19 @@
-# Runtime artifacts
-__pycache__/
-*.pyc
-*.pyo
+node_modules/
+.eslintcache
+*.log
 
-# LemonHarness runtime data (auto-generated sessions)
+# LemonHarness runtime data (auto-generated per session)
+.lemonharness/events.jsonl
 .lemonharness/memory/events.jsonl
 .lemonharness/memory/index.json
 .lemonharness/memory/text/
+.lemonharness/memory/code/
 .lemonharness/metrics/
 .lemonharness/lemonharness-validation-report.md
-.lemonharness/example/
 .lemonharness/heuristics.json
 .lemonharness/quality-specs.json
+.lemonharness/snapshots/
+.lemonharness/summaries/
+.lemonharness/delegates/*/summary.txt
+.lemonharness/delegates/*/messages.json
+.lemonharness/delegates/*/files.json
