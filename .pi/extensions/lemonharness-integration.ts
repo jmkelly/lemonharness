@@ -14,7 +14,11 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
+import { Type } from "typebox";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 // Import the new subsystems
 import type {
@@ -28,6 +32,8 @@ import type {
   KeyMomentDetector,
   VerificationRefinement,
   CommitAwareMemory,
+  ValidationAutoHealer,
+  AutoHealResult,
 } from "./lemonharness-subsystems";
 
 // We use dynamic imports because the subsystems module is a separate file
@@ -41,6 +47,26 @@ let keyMomentDetector: KeyMomentDetector | null = null;
 let verificationRefinement: VerificationRefinement | null = null;
 let commitAwareMemory: CommitAwareMemory | null = null;
 let qualityGateAlreadyTriggered = false;
+let validationAutoHealer: ValidationAutoHealer | null = null;
+
+// ── Delegate Tracking ─────────────────────────────────────────────
+
+interface DelegateRecord {
+  id: string;
+  task: string;
+  status: "pending" | "running" | "completed" | "failed" | "timed_out";
+  startedAt: number;
+  completedAt?: number;
+  budgetMs: number;
+  scope?: string;
+  summary?: string;
+  files?: string[];
+  toolCalls?: number;
+  error?: string;
+}
+
+const delegates: Map<string, DelegateRecord> = new Map();
+let delegateCounter = 0;
 
 // Import helpers from subsystems at runtime
 async function getSubsystems() {
@@ -74,6 +100,12 @@ export default function (pi: ExtensionAPI) {
       // Initialize v3 subsystems
       heuristicManager = new mod.HeuristicManager(workspaceDir);
       await heuristicManager.init();
+
+      // Initialize ValidationAutoHealer with connection to HeuristicManager for ERL lookups
+      validationAutoHealer = new mod.ValidationAutoHealer(ctx.cwd, workspaceDir);
+      if (heuristicManager) {
+        validationAutoHealer.setHeuristicManager(heuristicManager);
+      }
 
       privilegeManager = new mod.PrivilegeManager();
       saPVerifier = new mod.SaPVerifier();
@@ -202,18 +234,91 @@ export default function (pi: ExtensionAPI) {
             verificationRefinement.demoteOnFail(cmd as string, (event.content || "") as string, relatedPatterns);
           }
         }
+
+        // ── Self-Healing Validation Loop ────────────────────────────
+        // Auto-triage validation failures: attempt fixes, re-run, escalate
+        if (!passed && validationAutoHealer) {
+          const errorOutput = (typeof event.content === "string" ? event.content : "") || "";
+
+          // Attempt auto-heal asynchronously (don't block the event loop)
+          const healResult = await validationAutoHealer.autoHeal(cmd as string, errorOutput);
+
+          if (healResult.escalation) {
+            // After 3 failed attempts, present structured escalation report
+            ctx.ui.notify(
+              `🚨 Validation escalation after ${healResult.attempt} attempts:\n\n${healResult.escalationReport}`,
+              "error",
+            );
+          } else if (healResult.healed && healResult.retryCommand) {
+            // Fix applied successfully — suggest re-running validation
+            ctx.ui.notify(
+              `✅ Auto-healed validation: ${healResult.attemptedFix}\nRe-run validation to confirm.`,
+              "success",
+            );
+          } else if (healResult.attemptedFix) {
+            // Fix attempted but failed — inform user
+            const suggestion = healResult.topSuggestion
+              ? `\n\nSuggestion from past experience: "${healResult.topSuggestion}"`
+              : "";
+            ctx.ui.notify(
+              `⚠ Auto-heal attempt failed: ${healResult.attemptedFix}${suggestion}`,
+              "warning",
+            );
+          } else {
+            // No auto-fix available — present heuristic suggestion if available
+            if (healResult.topSuggestion) {
+              ctx.ui.notify(
+                `🔍 Validation failed. From past experience: "${healResult.topSuggestion}"`,
+                "info",
+              );
+            }
+          }
+        }
       }
     }
 
-    // v3: Detect constraint violations from error messages
-    if (event.isError) {
+    // ── v3: Escalation Ladder — Track escalation result ────────────
+    // Record whether this tool call (if it was a suggested alternative) succeeded or failed
+    if (privilegeManager && event.toolName) {
+      privilegeManager.recordEscalationResult(event.toolName, !event.isError, "tool_result");
+    }
+
+    // ── v3: Escalation Ladder — Auto-retry on failure ─────────────
+    if (event.isError && privilegeManager && event.toolName) {
+      // Read escalationAutoRetry setting
+      let autoRetry = true;
+      try {
+        const { readFileSync } = require("fs");
+        const settings = JSON.parse(readFileSync(join(ctx.cwd, ".pi", "settings.json"), "utf-8"));
+        autoRetry = settings.lemonharness?.escalationAutoRetry !== false;
+      } catch { /* use default */ }
+
+      if (autoRetry) {
+        const escalationResult = privilegeManager.attemptEscalation(event.toolName, "tool_error");
+
+        if (escalationResult.alternativeTool) {
+          ctx.ui.notify(
+            `🔒 Escalation ladder: \`${event.toolName}\` failed → try \`${escalationResult.alternativeTool}\``,
+            "info",
+          );
+        }
+
+        if (escalationResult.shouldSuggestConfig) {
+          ctx.ui.notify(
+            `⚙️ Tool "${event.toolName}" has been escalated ${privilegeManager.getChainCount(event.toolName)} times. Consider adjusting privilege settings in .pi/settings.json.`,
+            "warning",
+          );
+        }
+      }
+
+      // v3: Detect constraint violations from error messages
       const errorText = (typeof event.content === "string" ? event.content : "") || "";
       if (errorText.toLowerCase().includes("outside workspace") || errorText.toLowerCase().includes("workspace boundary")) {
         metricsRecorder.recordConstraintViolation();
       }
 
-      // v3: Privilege check on tool calls that errored
-      if (privilegeManager && event.toolName) {
+      // v3: Legacy privilege check on tool calls that errored
+      if (privilegeManager) {
         const privCheck = privilegeManager.checkPrivilege(event.toolName, { recentErrors: true });
         if (privCheck.isOverPrivileged && !privCheck.suggestedAlternative) {
           privilegeManager.recordEscalation(event.toolName, null, "tool_error");
@@ -227,6 +332,12 @@ export default function (pi: ExtensionAPI) {
           "warning",
         );
       } catch { /* non-critical */ }
+    } else if (!event.isError && privilegeManager && event.toolName) {
+      // Non-error: still check for constraint violations in content
+      const content = (typeof event.content === "string" ? event.content : "") || "";
+      if (content.toLowerCase().includes("outside workspace") || content.toLowerCase().includes("workspace boundary")) {
+        if (metricsRecorder) metricsRecorder.recordConstraintViolation();
+      }
     }
   });
 
@@ -237,7 +348,208 @@ export default function (pi: ExtensionAPI) {
     // Quality gate auto-trigger is handled in the workspace extension's turn_start.
   });
 
+  // ── Delegation: workspace_delegate tool ──────────────────────────
+
+  const PI_GLOBAL_PATH = "/home/james/.nvm/versions/node/v22.18.0/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js";
+  const DELEGATE_RUNNER = ".lemonharness/delegate-runner.mjs";
+
+  /**
+   * workspace_delegate — Spawn a sub-agent to work on a bounded sub-task.
+   *
+   * Research basis: arXiv:2605.23023 — Human-LLM collaborative planning
+   * Extended for multi-agent task decomposition with bounded authority.
+   */
+  pi.registerTool({
+    name: "workspace_delegate",
+    label: "Delegate Task",
+    description: "Delegate a bounded sub-task to a sub-agent with its own budget and scope. " +
+      "The sub-agent runs independently, reads files, makes changes, and reports back. " +
+      "Use for parallelizable work, independent sub-tasks, or exploring alternative approaches.",
+    promptSnippet: "Delegate a bounded sub-task to an independent sub-agent",
+    promptGuidelines: [
+      "Use workspace_delegate for work that can be done independently by a sub-agent with limited budget.",
+      "Be specific in the task description — include file paths, expected outcomes, and constraints.",
+      "The sub-agent has read, bash, write, and edit tools. It cannot install dependencies or access the network.",
+      "Check results with /lemonharness:delegates after spawning sub-agents.",
+      "Use context parameter to pass relevant information the sub-agent needs.",
+    ],
+    parameters: Type.Object({
+      task: Type.String({ description: "What the sub-agent should accomplish — be specific and include file paths" }),
+      budget_seconds: Type.Optional(Type.Number({ description: "Max execution time in seconds (default: 120, max: 600)" })),
+      context: Type.Optional(Type.String({ description: "Additional context, reference info, or prior work for the sub-agent" })),
+      scope: Type.Optional(Type.String({ description: "Subdirectory to constrain the sub-agent's work to (e.g., '.pi/extensions/')" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const id = `delegate-${++delegateCounter}-${Date.now().toString(36)}`;
+      const task = params.task;
+      const budgetMs = Math.min((params.budget_seconds || 120) * 1000, 600_000);
+      const context = params.context || "";
+      const scope = params.scope || "";
+
+      // Create delegate workspace
+      const delegateDir = join(ctx.cwd, ".lemonharness", "delegates", id);
+      await mkdir(delegateDir, { recursive: true });
+
+      // Register delegate
+      const record: DelegateRecord = {
+        id, task, status: "running",
+        startedAt: Date.now(),
+        budgetMs, scope,
+      };
+      delegates.set(id, record);
+
+      // Build input for delegate runner
+      const input = JSON.stringify({
+        task,
+        cwd: ctx.cwd,
+        budgetMs,
+        context,
+        constraint: scope ? `All work must be within the '${scope}' directory.` : "",
+        outputDir: join(".lemonharness", "delegates", id),
+      });
+
+      // Spawn delegate runner as child process
+      const runnerPath = join(ctx.cwd, DELEGATE_RUNNER);
+      if (!existsSync(runnerPath)) {
+        delegates.set(id, { ...record, status: "failed", error: "Delegate runner not found" });
+        return {
+          content: [{ type: "text" as const, text: `Error: Delegate runner not found at ${DELEGATE_RUNNER}` }],
+          isError: true, details: {},
+        };
+      }
+
+      // Run in background — spawn without awaiting
+      const child = spawn("node", [runnerPath], {
+        cwd: ctx.cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, NODE_PATH: join(ctx.cwd, "node_modules") },
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let resultEmitted = false;
+
+      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+      child.stdin?.write(input);
+      child.stdin?.end();
+
+      // Wait for completion
+      const exitPromise = new Promise<void>((resolvePromise) => {
+        child.on("close", (code) => {
+          // Parse result from stdout (last JSON line)
+          const lines = stdout.trim().split("\n").filter(Boolean);
+          const lastLine = lines[lines.length - 1];
+          let result: any = null;
+          if (lastLine) {
+            try { result = JSON.parse(lastLine); } catch { /* not JSON */ }
+          }
+
+          if (result?.type === "result") {
+            const status = result.success ? "completed" : "failed";
+            record.status = status;
+            record.completedAt = Date.now();
+            record.summary = result.summary?.slice(0, 500);
+            record.files = result.files || [];
+            record.toolCalls = result.toolCalls || 0;
+            resultEmitted = true;
+          } else {
+            record.status = code === 0 ? "completed" : "failed";
+            record.completedAt = Date.now();
+            record.summary = stdout.slice(0, 500);
+            if (code !== 0) record.error = stderr.slice(0, 300);
+          }
+
+          resolvePromise();
+        });
+
+        // Timeout safety
+        setTimeout(() => {
+          if (!resultEmitted) {
+            child.kill("SIGTERM");
+            record.status = "timed_out";
+            record.completedAt = Date.now();
+            record.summary = stdout.slice(0, 500);
+            resolvePromise();
+          }
+        }, budgetMs + 10_000); // 10s grace for cleanup
+      });
+
+      await exitPromise;
+
+      // Return results
+      const summary = record.summary || "Delegate completed";
+      const filesList = record.files?.length
+        ? `\n\nFiles modified: ${record.files.join(", ")}`
+        : "";
+      const toolInfo = record.toolCalls ? `\nTool calls: ${record.toolCalls}` : "";
+      const errorInfo = record.error ? `\nError: ${record.error}` : "";
+
+      const text = record.status === "completed"
+        ? `✅ Delegate [${id}] completed\n\n${summary.slice(0, 3000)}${filesList}${toolInfo}`
+        : `❌ Delegate [${id}] ${record.status}: ${record.error || "Unknown error"}\n\nPartial output: ${summary.slice(0, 1000)}`;
+
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { delegateId: id, status: record.status, summary: summary.slice(0, 500) },
+        isError: record.status !== "completed",
+      };
+    },
+  });
+
   // ── Commands ─────────────────────────────────────────────────────
+
+  // /lemonharness:delegates — Show delegate status
+  pi.registerCommand("lemonharness:delegates", {
+    description: "Show status of all spawned delegates (sub-agents)",
+    handler: async (_args, ctx) => {
+      const all = [...delegates.values()];
+      if (all.length === 0) {
+        ctx.ui.notify("No delegates have been spawned this session.", "info");
+        return;
+      }
+      const lines = [
+        "🤖 Delegate Summary",
+        "───────────────────",
+        ...all.map(d => {
+          const statusIcon =
+            d.status === "completed" ? "✅" :
+            d.status === "failed" ? "❌" :
+            d.status === "timed_out" ? "⏰" :
+            "🔄";
+          const time = d.completedAt
+            ? `${((d.completedAt - d.startedAt) / 1000).toFixed(0)}s`
+            : "running...";
+          return `  ${statusIcon} ${d.id}: ${d.task.slice(0, 60)} [${time}, ${d.status}]`;
+        }),
+      ];
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // /lemonharness:delegate <id> — Show detailed delegate result
+  pi.registerCommand("lemonharness:delegate", {
+    description: "Show detailed result of a specific delegate. Usage: /lemonharness:delegate <id>",
+    handler: async (args, ctx) => {
+      const id = args.trim();
+      if (!id) { ctx.ui.notify("Usage: /lemonharness:delegate <id>", "error"); return; }
+      const d = delegates.get(id);
+      if (!d) { ctx.ui.notify(`Delegate "${id}" not found.`, "error"); return; }
+      const lines = [
+        `🤖 Delegate: ${d.id}`,
+        `  Task: ${d.task}`,
+        `  Status: ${d.status}`,
+        `  Budget: ${(d.budgetMs / 1000).toFixed(0)}s`,
+        `  Duration: ${d.completedAt ? ((d.completedAt - d.startedAt) / 1000).toFixed(0) + "s" : "running..."}`,
+        `  Scope: ${d.scope || "(none)"}`,
+      ];
+      if (d.summary) lines.push(`  Summary: ${d.summary.slice(0, 1000)}`);
+      if (d.files?.length) lines.push(`  Files: ${d.files.join(", ")}`);
+      if (d.error) lines.push(`  Error: ${d.error}`);
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });  // ── Commands ─────────────────────────────────────────────────────
 
   // /lemonharness:quality-gate — Manually run quality gate
   pi.registerCommand("lemonharness:quality-gate", {
@@ -296,9 +608,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // /lemonharness:privilege — Show tool privilege stats
+  // /lemonharness:privilege — Show tool privilege stats + escalation chain history
   pi.registerCommand("lemonharness:privilege", {
-    description: "Show tool privilege hierarchy and escalation statistics",
+    description: "Show tool privilege hierarchy, escalation chain history, and config suggestions",
     handler: async (_args, ctx) => {
       if (!privilegeManager) { ctx.ui.notify("🍋 Privilege manager not initialized", "warning"); return; }
       ctx.ui.notify(privilegeManager.formatStatus(), "info");
@@ -361,6 +673,99 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       if (!verificationRefinement) { ctx.ui.notify("🍋 Verification refinement not initialized", "warning"); return; }
       ctx.ui.notify(verificationRefinement.getCorrelationReport(), "info");
+    },
+  });
+
+  // /lemonharness:heal — Manually trigger healing or show stats
+  pi.registerCommand("lemonharness:heal", {
+    description: "Show auto-healing stats or manually trigger healing for last failure. Usage: /lemonharness:heal [last|stats|reset]",
+    handler: async (args, ctx) => {
+      if (!validationAutoHealer) {
+        ctx.ui.notify("🍋 Validation auto-healer not initialized", "warning");
+        return;
+      }
+
+      const subcommand = args.trim().toLowerCase();
+
+      if (subcommand === "stats") {
+        // Show auto-healing statistics
+        ctx.ui.notify(validationAutoHealer.getStats(), "info");
+        return;
+      }
+
+      if (subcommand === "reset") {
+        // Reset attempt counters
+        validationAutoHealer.resetAllAttempts();
+        ctx.ui.notify("🔄 Reset all auto-heal attempt counters. Next validation failure will start fresh.", "info");
+        return;
+      }
+
+      if (subcommand === "list") {
+        // Show all tracked failures
+        ctx.ui.notify(validationAutoHealer.getFailuresSummary(), "info");
+        return;
+      }
+
+      if (subcommand === "" || subcommand === "last") {
+        // Show stats + attempt to heal last failure
+        ctx.ui.notify(validationAutoHealer.getStats(), "info");
+
+        const lastFailure = validationAutoHealer.getLastFailure();
+        if (!lastFailure) {
+          ctx.ui.notify("No unresolved validation failures to heal.", "info");
+          return;
+        }
+
+        ctx.ui.notify(
+          `Attempting to heal last failure: ${lastFailure.command.slice(0, 80)}...`,
+          "info",
+        );
+
+        const result = await validationAutoHealer.healLastFailure();
+        if (!result) {
+          ctx.ui.notify("No failure to heal.", "info");
+          return;
+        }
+
+        if (result.escalation) {
+          ctx.ui.notify(
+            `🚨 Escalation after ${result.attempt} attempts:\n\n${result.escalationReport}`,
+            "error",
+          );
+        } else if (result.healed) {
+          const retryMsg = result.retryCommand
+            ? ` Re-run: \`${result.retryCommand}\``
+            : "";
+          ctx.ui.notify(
+            `✅ Auto-healed! Fix applied: ${result.attemptedFix}.${retryMsg}`,
+            "success",
+          );
+        } else if (result.attemptedFix) {
+          const suggestion = result.topSuggestion
+            ? `\nSuggestion: "${result.topSuggestion}"`
+            : "";
+          ctx.ui.notify(
+            `⚠ Fix attempt failed: ${result.attemptedFix}.${suggestion}`,
+            "warning",
+          );
+        } else {
+          const suggestion = result.topSuggestion
+            ? `From past experience: "${result.topSuggestion}"`
+            : "No auto-fix available for this error pattern.";
+          ctx.ui.notify(`🔍 ${suggestion}`, "info");
+        }
+        return;
+      }
+
+      // Unknown subcommand
+      ctx.ui.notify(
+        "Usage: /lemonharness:heal [last|stats|list|reset]\n\n" +
+        "  last   — Attempt to heal the most recent validation failure (default)\n" +
+        "  stats  — Show auto-healing statistics\n" +
+        "  list   — List all tracked validation failures\n" +
+        "  reset  — Reset auto-heal attempt counters",
+        "info",
+      );
     },
   });
 }

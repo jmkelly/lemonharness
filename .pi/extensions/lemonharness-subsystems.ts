@@ -278,6 +278,27 @@ export interface ToolPrivilege {
   sufficientAlternatives: string[];  // Lower-privilege alternatives
 }
 
+// ── v3: Tool Privilege Escalation Ladder ──────────────────────────
+// Research basis: arXiv:2606.20023 — Over-Privileged Tool Selection
+
+export interface EscalationStep {
+  level: ToolPrivilegeLevel;
+  toolName: string;
+  timestamp: number;
+  alternativeTool: string | null;
+  alternativeLevel: ToolPrivilegeLevel | null;
+  success: boolean | null;  // null=pending, true=alternative succeeded, false=alternative failed
+  context: string;
+}
+
+export interface EscalationPattern {
+  pattern: string;
+  chain: EscalationStep[];
+  count: number;
+  lastEscalation: number;
+  configSuggested: boolean;
+}
+
 // ── v3: Key Moments (ASH) ───────────────────────────────────────────
 // Research basis: arXiv:2605.14211 — ASH self-honing agents
 
@@ -880,7 +901,33 @@ export class PrivilegeManager {
   private escalationHistory: Array<{ toolName: string; timestamp: number; suggestedAlternative: string | null; wasOverride: boolean; context: string }> = [];
   private totalToolCalls: number = 0;
 
-  constructor() { this.registerDefaultTools(); }
+  // ── Escalation Ladder ───────────────────────────────────────────
+  private escalationChains: Map<string, EscalationPattern> = new Map();
+  private specificEscalation: Map<string, string> = new Map();  // tool -> alternative at next level
+
+  constructor() {
+    this.registerDefaultTools();
+    this.registerEscalationAlternatives();
+  }
+
+  private registerEscalationAlternatives() {
+    // For each tool, define the higher-privilege alternative to try when it fails
+    this.specificEscalation.set("read", "workspace_write");
+    this.specificEscalation.set("workspace_state", "workspace_exec");
+    this.specificEscalation.set("workspace_memory_search", "bash");
+    this.specificEscalation.set("workspace_memory_stats", "bash");
+    this.specificEscalation.set("workspace_memory_list_code", "bash");
+    this.specificEscalation.set("workspace_write", "workspace_exec");
+    this.specificEscalation.set("workspace_append", "workspace_exec");
+    this.specificEscalation.set("workspace_create_temp", "workspace_exec");
+    this.specificEscalation.set("workspace_memory_record", "workspace_exec");
+    this.specificEscalation.set("workspace_memory_feedback", "workspace_exec");
+    this.specificEscalation.set("workspace_exec", "workspace_install_dep");
+    this.specificEscalation.set("workspace_validate", "workspace_exec");
+    this.specificEscalation.set("bash", "write");
+    this.specificEscalation.set("write", "edit");
+    this.specificEscalation.set("edit", "workspace_exec");
+  }
 
   private registerDefaultTools() {
     this.registerTool("read", ToolPrivilegeLevel.READ, "Read file contents", []);
@@ -921,6 +968,170 @@ export class PrivilegeManager {
     return { isOverPrivileged: false, suggestedAlternative: null };
   }
 
+  /**
+   * Attempt escalation when a tool fails.
+   * Returns the next privilege level alternative tool, if one exists.
+   *
+   * Escalation ladder:
+   *   READ fails -> try SCOPED_WRITE fallback
+   *   SCOPED_WRITE fails -> try EXECUTION fallback
+   *   EXECUTION fails -> try MANAGEMENT fallback
+   *   MANAGEMENT -> no escalation possible
+   */
+  attemptEscalation(failedTool: string, context: string): {
+    alternativeTool: string | null;
+    alternativeLevel: ToolPrivilegeLevel | null;
+    chain: EscalationStep[];
+    shouldSuggestConfig: boolean;
+  } {
+    const privilege = this.toolPrivileges.get(failedTool);
+    if (!privilege) {
+      return { alternativeTool: null, alternativeLevel: null, chain: [], shouldSuggestConfig: false };
+    }
+
+    const currentLevel = privilege.level;
+
+    // Can't escalate beyond MANAGEMENT
+    if (currentLevel >= ToolPrivilegeLevel.MANAGEMENT) {
+      return { alternativeTool: null, alternativeLevel: null, chain: [], shouldSuggestConfig: false };
+    }
+
+    // Next privilege level up
+    const nextLevel = (currentLevel + 1) as ToolPrivilegeLevel;
+
+    // Find alternative tool at the next level
+    let alternativeTool: string | null = this.specificEscalation.get(failedTool) ?? null;
+    if (!alternativeTool) {
+      // Fall back: pick first available tool at the next level that isn't the failed tool
+      const toolsAtNextLevel = [...this.toolPrivileges.values()]
+        .filter(tp => tp.level === nextLevel && tp.toolName !== failedTool);
+      alternativeTool = toolsAtNextLevel.length > 0 ? toolsAtNextLevel[0].toolName : null;
+    } else {
+      // Verify the alternative is actually at the expected level
+      const altPriv = this.toolPrivileges.get(alternativeTool);
+      if (!altPriv || altPriv.level !== nextLevel) {
+        // Fall back to generic search
+        const toolsAtNextLevel = [...this.toolPrivileges.values()]
+          .filter(tp => tp.level === nextLevel && tp.toolName !== failedTool);
+        alternativeTool = toolsAtNextLevel.length > 0 ? toolsAtNextLevel[0].toolName : null;
+      }
+    }
+
+    // Create escalation step
+    const step: EscalationStep = {
+      level: currentLevel,
+      toolName: failedTool,
+      timestamp: Date.now(),
+      alternativeTool,
+      alternativeLevel: alternativeTool ? nextLevel : null,
+      success: null,
+      context,
+    };
+
+    // Track in escalation chain (grouped by tool pattern)
+    const pattern = this.getEscalationPattern(failedTool);
+    let chain = this.escalationChains.get(pattern);
+    if (!chain) {
+      chain = { pattern, chain: [], count: 0, lastEscalation: Date.now(), configSuggested: false };
+      this.escalationChains.set(pattern, chain);
+    }
+    chain.chain.push(step);
+    chain.count++;
+    chain.lastEscalation = Date.now();
+
+    // Also record in legacy escalation history for backward compatibility
+    this.escalationHistory.push({
+      toolName: failedTool,
+      timestamp: Date.now(),
+      suggestedAlternative: alternativeTool,
+      wasOverride: true,
+      context: `escalation_ladder: ${context}`,
+    });
+
+    // After 3+ escalations for the same pattern, suggest config changes
+    const shouldSuggestConfig = chain.count >= 3 && !chain.configSuggested;
+    if (shouldSuggestConfig) {
+      chain.configSuggested = true;
+    }
+
+    return { alternativeTool, alternativeLevel: alternativeTool ? nextLevel : null, chain: chain.chain, shouldSuggestConfig };
+  }
+
+  /**
+   * Record whether a suggested escalation alternative succeeded or failed.
+   * Matches the tool name against the most recent unresolved escalation step.
+   */
+  recordEscalationResult(toolName: string, succeeded: boolean, context: string): void {
+    // Find the most recent escalation step where this tool was the suggested alternative
+    // and the step hasn't been resolved yet (success === null)
+    for (const [, chain] of this.escalationChains) {
+      for (let i = chain.chain.length - 1; i >= 0; i--) {
+        const step = chain.chain[i];
+        if (step.alternativeTool === toolName && step.success === null) {
+          step.success = succeeded;
+          step.context = context;
+          return;
+        }
+      }
+    }
+  }
+
+  /**
+   * Get the pattern identifier for a tool (for grouping escalation chains).
+   */
+  private getEscalationPattern(failedTool: string): string {
+    // Extract a human-readable pattern from the tool name
+    return failedTool;
+  }
+
+  /**
+   * Get all escalation chain data (for display or analysis).
+   */
+  getEscalationChains(): Map<string, EscalationPattern> {
+    return new Map(this.escalationChains);
+  }
+
+  /**
+   * Get a specific escalation chain by tool pattern.
+   */
+  getChainCount(toolPattern: string): number {
+    const chain = this.escalationChains.get(toolPattern);
+    return chain ? chain.count : 0;
+  }
+
+  /**
+   * Get a formatted summary of escalation chains.
+   */
+  getEscalationChainSummary(): string {
+    if (this.escalationChains.size === 0) {
+      return "  No escalation chains recorded.";
+    }
+
+    // Show last 5 chains sorted by most recent
+    const chains = [...this.escalationChains.values()]
+      .sort((a, b) => b.lastEscalation - a.lastEscalation)
+      .slice(0, 5);
+
+    const lines: string[] = [
+      `  Escalation Chain History (last ${Math.min(this.escalationChains.size, 5)} of ${this.escalationChains.size}):`
+    ];
+
+    for (const chain of chains) {
+      const steps = chain.chain.map(s => {
+        const levelName = ToolPrivilegeLevel[s.level];
+        const altName = s.alternativeTool
+          ? `→ ${ToolPrivilegeLevel[s.alternativeLevel!]}:${s.alternativeTool}`
+          : "→ (none)";
+        const status = s.success === null ? "⏳" : s.success ? "✅" : "❌";
+        return `${levelName}:${s.toolName} ${altName} ${status}`;
+      });
+      lines.push(`    • ${steps.join(" > ")} (${chain.count}x)`);
+    }
+
+    return lines.join("\n");
+  }
+
+
   recordEscalation(toolName: string, alternative: string | null, context: string) {
     this.escalationHistory.push({ toolName, timestamp: Date.now(), suggestedAlternative: alternative, wasOverride: true, context });
   }
@@ -939,10 +1150,41 @@ export class PrivilegeManager {
     const escalations = this.escalationHistory.filter(e => e.wasOverride).length;
     const rate = this.totalToolCalls > 0 ? (escalations / this.totalToolCalls * 100).toFixed(0) : "0";
     const compliance = this.totalToolCalls > 0 ? ((1 - this.getEscalationRate()) * 100).toFixed(0) : "100";
-    return [`🔒 Tool Privileges:`, `  ${total} tools registered`, `  Escalation rate: ${rate}% (${escalations} escalations in ${this.totalToolCalls} calls)`, `  Least-privilege compliance: ${compliance}%`].join("\n");
+
+    const lines: string[] = [
+      `🔒 Tool Privileges:`,
+      `  ${total} tools registered`,
+      `  Escalation rate: ${rate}% (${escalations} escalations in ${this.totalToolCalls} calls)`,
+      `  Least-privilege compliance: ${compliance}%`,
+      ``,
+      this.getEscalationChainSummary(),
+    ];
+
+    // Show configuration suggestions for chains with 3+ escalations
+    const chainsNeedingConfig = [...this.escalationChains.values()]
+      .filter(c => c.configSuggested);
+
+    if (chainsNeedingConfig.length > 0) {
+      lines.push(``);
+      lines.push(`⚙️ Configuration Suggestions:`);
+      for (const c of chainsNeedingConfig) {
+        lines.push(`  • Tool "${c.pattern}" has been escalated ${c.count} times. Consider adjusting tool privilege settings in .pi/settings.json.`);
+      }
+      lines.push(`  Set "lemonharness.toolPrivilege.escalationThreshold" to raise or lower the sensitivity.`);
+    }
+
+    return lines.join("\n");
   }
 
-  reset() { this.toolPrivileges.clear(); this.escalationHistory = []; this.totalToolCalls = 0; this.registerDefaultTools(); }
+  reset() {
+    this.toolPrivileges.clear();
+    this.escalationHistory = [];
+    this.totalToolCalls = 0;
+    this.escalationChains.clear();
+    this.specificEscalation.clear();
+    this.registerDefaultTools();
+    this.registerEscalationAlternatives();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1151,7 +1393,7 @@ export class CommitAwareMemory {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface LogEntry {
-  type: "tool_call" | "validation";
+  type: "tool_call" | "validation" | "confidence";
   timestamp: number;
   toolName?: string;
   args?: unknown;
@@ -1161,6 +1403,8 @@ export interface LogEntry {
   command?: string;
   passed?: boolean;
   output?: string;
+  /** Self-assessed confidence for a significant output (score 1-5). */
+  confidence?: { score: number; rationale: string; flagForReview: boolean };
 }
 
 /**
@@ -1408,6 +1652,899 @@ export function hybridSimilarity(
   const union = new Set([...queryWords, ...docWords]);
   const jaccard = union.size > 0 ? intersection.size / union.size : 0;
   return tfidf * 0.6 + jaccard * 0.4;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. HealthChecker — Periodic Scheduled Health Checks
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Result of a single health check execution.
+ */
+export interface HealthCheckResult {
+  passed: boolean;
+  severity: "green" | "yellow" | "red";
+  message: string;
+  details?: string;
+}
+
+/**
+ * State snapshot passed to health check functions.
+ * Aggregated from workspace, time director, and execution logger.
+ */
+export interface HealthCheckState {
+  turnIndex: number;
+  elapsedMs: number;
+  totalBudgetMs: number;
+  currentPhase: string;
+  phaseProgress: number;
+  totalProgress: number;
+  totalToolCalls: number;
+  totalErrors: number;
+  consecutiveErrors: number;
+  errorRate: number;
+  regressionDetected: boolean;
+  regressionMessage: string | null;
+  filesModified: number;
+  dependencies: string[];
+  dependencyCount: number;
+  validationsPassed: number;
+  validationsFailed: number;
+}
+
+/**
+ * Internal registration for a health check.
+ */
+export interface HealthCheckRegistration {
+  name: string;
+  interval: number;
+  checkFn: (state: HealthCheckState) => HealthCheckResult;
+  lastRunTurn: number;
+  lastResult: HealthCheckResult | null;
+}
+
+/**
+ * HealthChecker — Periodic Scheduled Health Checks
+ *
+ * Registers interval-based hooks that fire every N turns to check
+ * approach validity, budget health, and prerequisite changes.
+ *
+ * Features:
+ * - Configurable check intervals (default: every 5 turns)
+ * - Three default checks: approach_validity, budget_health, prerequisite_change
+ * - Yellow alert for approach drift, Red alert for budget overrun
+ * - Status report via getStatus()
+ */
+export class HealthChecker {
+  private checks: Map<string, HealthCheckRegistration> = new Map();
+  private turnIndex: number = 0;
+  private alerts: Array<{
+    name: string;
+    severity: "yellow" | "red";
+    message: string;
+    timestamp: number;
+    dismissed: boolean;
+  }> = [];
+
+  /**
+   * Register a health check function that runs every `interval` turns.
+   */
+  registerCheck(name: string, interval: number, checkFn: (state: HealthCheckState) => HealthCheckResult): void {
+    this.checks.set(name, { name, interval, checkFn, lastRunTurn: 0, lastResult: null });
+  }
+
+  /**
+   * Register the three default health checks:
+   *   1. approach_validity — Is the approach still valid given new information?
+   *   2. budget_health — Are we on track for the budget?
+   *   3. prerequisite_change — Have prerequisites changed?
+   *
+   * Each runs every 5 turns (configurable via interval parameter).
+   */
+  registerDefaultChecks(interval: number = 5): void {
+    // Check 1: Approach validity
+    this.registerCheck("approach_validity", interval, (state) => {
+      // Yellow alert if 3+ consecutive errors (approach drift)
+      if (state.consecutiveErrors >= 3) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `Approach may be drifting: ${state.consecutiveErrors} consecutive errors detected`,
+          details: `Check if current approach needs adjustment; consider pivoting or re-evaluating assumptions`,
+        };
+      }
+      // Yellow alert if regression detected
+      if (state.regressionDetected) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `Approach validity concern: ${state.regressionMessage || "Regression detected (3+ consecutive failures of same type)"}`,
+          details: `Repeated failures of same type suggest the current approach is not working`,
+        };
+      }
+      // Yellow alert if error rate > 50% in recent calls
+      if (state.errorRate > 0.5 && state.totalToolCalls >= 5) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `High error rate (${(state.errorRate * 100).toFixed(0)}% of recent calls) — approach may need revision`,
+          details: `More than half of recent tool calls resulted in errors; consider a different approach`,
+        };
+      }
+      return {
+        passed: true,
+        severity: "green",
+        message: "Approach appears valid given current execution context",
+      };
+    });
+
+    // Check 2: Budget health
+    this.registerCheck("budget_health", interval, (state) => {
+      const remainingPct = Math.max(0, 1 - state.totalProgress);
+
+      // Red alert: < 10% remaining and not yet in reserve phase
+      if (remainingPct < 0.1 && state.currentPhase !== "reserve") {
+        return {
+          passed: false,
+          severity: "red",
+          message: `Budget overrun risk: only ${(remainingPct * 100).toFixed(0)}% of budget remains in ${state.currentPhase} phase`,
+          details: `Immediately wrap up current work and transition to reserve phase to preserve results`,
+        };
+      }
+
+      // Yellow alert: < 20% remaining and still in explore or implement
+      if (remainingPct < 0.2 && (state.currentPhase === "explore" || state.currentPhase === "implement")) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `Budget running low: ${(remainingPct * 100).toFixed(0)}% remaining in ${state.currentPhase} phase`,
+          details: `Accelerate execution or adjust scope to fit within the remaining budget`,
+        };
+      }
+
+      // Yellow alert: spent > 35% of budget but still in explore
+      if (state.currentPhase === "explore" && state.totalProgress > 0.35) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `Spent ${(state.totalProgress * 100).toFixed(0)}% of budget but still in explore phase`,
+          details: `Consider transitioning to implementation phase to make progress on the task`,
+        };
+      }
+
+      return {
+        passed: true,
+        severity: "green",
+        message: `Budget on track (${(remainingPct * 100).toFixed(0)}% remaining)`,
+      };
+    });
+
+    // Check 3: Prerequisite change
+    this.registerCheck("prerequisite_change", interval, (state) => {
+      // If 2+ consecutive errors and past early phase, prerequisites may be stale
+      if (state.consecutiveErrors >= 2 && state.totalProgress > 0.3) {
+        return {
+          passed: false,
+          severity: "yellow",
+          message: `Prerequisites may have changed: ${state.consecutiveErrors} errors suggest underlying assumptions may be invalid`,
+          details: `Check if dependencies, file paths, or environment configuration have changed since the start`,
+        };
+      }
+
+      // Healthy: report current state
+      const depInfo = state.dependencyCount > 0
+        ? `${state.dependencyCount} dependencies installed`
+        : "no dependencies";
+      const fileInfo = state.filesModified > 0
+        ? `${state.filesModified} files modified`
+        : "no files modified yet";
+
+      return {
+        passed: true,
+        severity: "green",
+        message: `Prerequisites stable — ${depInfo}, ${fileInfo}`,
+      };
+    });
+  }
+
+  /**
+   * Run all health checks that are due based on the current turn index and state.
+   * Call this after each tool call or turn.
+   */
+  runChecks(state: Partial<HealthCheckState>): void {
+    this.turnIndex++;
+
+    const fullState: HealthCheckState = {
+      turnIndex: this.turnIndex,
+      elapsedMs: state.elapsedMs ?? 0,
+      totalBudgetMs: state.totalBudgetMs ?? 300000,
+      currentPhase: state.currentPhase ?? "explore",
+      phaseProgress: state.phaseProgress ?? 0,
+      totalProgress: state.totalProgress ?? 0,
+      totalToolCalls: state.totalToolCalls ?? 0,
+      totalErrors: state.totalErrors ?? 0,
+      consecutiveErrors: state.consecutiveErrors ?? 0,
+      errorRate: state.errorRate ?? 0,
+      regressionDetected: state.regressionDetected ?? false,
+      regressionMessage: state.regressionMessage ?? null,
+      filesModified: state.filesModified ?? 0,
+      dependencies: state.dependencies ?? [],
+      dependencyCount: state.dependencyCount ?? 0,
+      validationsPassed: state.validationsPassed ?? 0,
+      validationsFailed: state.validationsFailed ?? 0,
+    };
+
+    for (const [name, check] of this.checks) {
+      if (this.turnIndex - check.lastRunTurn >= check.interval) {
+        check.lastRunTurn = this.turnIndex;
+        const result = check.checkFn(fullState);
+        check.lastResult = result;
+
+        // Generate alerts for non-green results (deduped by name + severity)
+        if (result.severity === "yellow" || result.severity === "red") {
+          // Avoid duplicate alerts for the same check
+          const hasActive = this.alerts.some(
+            a => !a.dismissed && a.name === name && a.severity === result.severity && a.message === result.message
+          );
+          if (!hasActive) {
+            this.alerts.push({
+              name,
+              severity: result.severity,
+              message: result.message,
+              timestamp: Date.now(),
+              dismissed: false,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Get all pending alerts and mark them as dismissed.
+   * Returns empty array if no new alerts.
+   */
+  getAlerts(): Array<{ name: string; severity: "yellow" | "red"; message: string }> {
+    const pending = this.alerts.filter(a => !a.dismissed);
+    for (const alert of pending) {
+      alert.dismissed = true;
+    }
+    return pending.map(({ name, severity, message }) => ({ name, severity, message }));
+  }
+
+  /**
+   * Get a formatted human-readable status report of all health checks.
+   * Shows last result for each check and any pending alerts.
+   */
+  getStatus(): string {
+    const lines: string[] = [
+      "🩺 Health Check Status",
+      "─────────────────────",
+      `Turn index: ${this.turnIndex}`,
+      `Registered checks: ${this.checks.size}`,
+      "",
+    ];
+
+    if (this.checks.size === 0) {
+      lines.push("No health checks registered.");
+      return lines.join("\n");
+    }
+
+    for (const [name, check] of this.checks) {
+      const result = check.lastResult;
+      const icon = !result ? "⚪" : result.severity === "green" ? "✅" : result.severity === "yellow" ? "⚠️" : "🔴";
+      const lastRunStr = !result
+        ? "Pending (first check on next cycle)"
+        : `Last: ${result.message}`;
+
+      lines.push(`  ${icon} ${name}`);
+      lines.push(`     ${lastRunStr}`);
+      if (result?.details) {
+        lines.push(`     ${result.details}`);
+      }
+      lines.push(`     (every ${check.interval} turns, next in ${check.interval - (this.turnIndex - check.lastRunTurn)} turns)`);
+      lines.push("");
+    }
+
+    const activeAlerts = this.alerts.filter(a => !a.dismissed);
+    if (activeAlerts.length > 0) {
+      lines.push("⚠️ Active Alerts:");
+      for (const alert of activeAlerts) {
+        const prefix = alert.severity === "red" ? "🔴" : "⚠️";
+        lines.push(`  ${prefix} [${alert.name}] ${alert.message}`);
+      }
+    } else {
+      lines.push("✅ No active alerts");
+    }
+
+    return lines.join("\n");
+  }
+
+  /**
+   * Get the number of registered checks.
+   */
+  getCheckCount(): number {
+    return this.checks.size;
+  }
+
+  /**
+   * Get the current turn index.
+   */
+  getTurnIndex(): number {
+    return this.turnIndex;
+  }
+
+  /**
+   * Reset the health checker: clear all checks, alerts, and turn counter.
+   */
+  reset(): void {
+    this.checks.clear();
+    this.turnIndex = 0;
+    this.alerts = [];
+  }
+}
+
+/**
+ * Create a standalone approach-validity check function for use outside HealthChecker.
+ */
+export function createApproachValidityCheck(config?: {
+  maxConsecutiveErrors?: number;
+  maxErrorRate?: number;
+}): (state: HealthCheckState) => HealthCheckResult {
+  const maxConsecutiveErrors = config?.maxConsecutiveErrors ?? 3;
+  const maxErrorRate = config?.maxErrorRate ?? 0.5;
+
+  return (state: HealthCheckState) => {
+    if (state.consecutiveErrors >= maxConsecutiveErrors) {
+      return {
+        passed: false,
+        severity: "yellow",
+        message: `Approach may be drifting: ${state.consecutiveErrors} consecutive errors`,
+      };
+    }
+    if (state.regressionDetected) {
+      return {
+        passed: false,
+        severity: "yellow",
+        message: `Approach validity concern: ${state.regressionMessage || "Regression detected"}`,
+      };
+    }
+    if (state.errorRate > maxErrorRate && state.totalToolCalls >= 5) {
+      return {
+        passed: false,
+        severity: "yellow",
+        message: `High error rate (${(state.errorRate * 100).toFixed(0)}%)`,
+      };
+    }
+    return { passed: true, severity: "green", message: "Approach appears valid" };
+  };
+}
+
+/**
+ * Create a standalone budget-health check function for use outside HealthChecker.
+ */
+export function createBudgetHealthCheck(): (state: HealthCheckState) => HealthCheckResult {
+  return (state: HealthCheckState) => {
+    const remainingPct = Math.max(0, 1 - state.totalProgress);
+    if (remainingPct < 0.1 && state.currentPhase !== "reserve") {
+      return {
+        passed: false,
+        severity: "red",
+        message: `Budget overrun risk: only ${(remainingPct * 100).toFixed(0)}% of budget remains`,
+      };
+    }
+    if (remainingPct < 0.2 && (state.currentPhase === "explore" || state.currentPhase === "implement")) {
+      return {
+        passed: false,
+        severity: "yellow",
+        message: `Budget running low: ${(remainingPct * 100).toFixed(0)}% remaining in ${state.currentPhase} phase`,
+      };
+    }
+    return { passed: true, severity: "green", message: "Budget on track" };
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. ValidationAutoHealer — Self-Healing Validation Loop
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Represents a validation failure event with metadata for tracking.
+ */
+export interface ValidationFailureEvent {
+  timestamp: number;
+  command: string;
+  errorOutput: string;
+  suggestions: string[];
+  resolved: boolean;
+  healAttempts: number;
+  escalated?: boolean;
+  escalationReport?: string;
+}
+
+/**
+ * Result of an auto-heal attempt.
+ */
+export interface AutoHealResult {
+  healed: boolean;
+  attemptedFix: string | null;
+  topSuggestion: string | null;
+  escalation: boolean;
+  escalationReport?: string;
+  retryCommand: string | undefined;
+  attempt: number;
+}
+
+/**
+ * Internal representation of an identified fix.
+ */
+interface IdentifiedFix {
+  type: string;
+  description: string;
+  command?: string;
+}
+
+/**
+ * ValidationAutoHealer — Self-Healing Validation Loop
+ *
+ * Automatically triages validation failures, searches ERL heuristics
+ * for relevant prevention/correction rules, and attempts automatic fixes
+ * for common issues (formatting, missing imports, type errors, etc.).
+ *
+ * After 3 failed auto-retry attempts, escalates with a structured report.
+ *
+ * Research basis: arXiv:2603.24639 — ERL Experiential Reflective Learning
+ * Applied to validation: auto-extract patterns from errors, attempt fix,
+ * re-run validation, and escalate on repeated failure.
+ */
+export class ValidationAutoHealer {
+  private projectRoot: string;
+  private workspaceDir: string;
+  private attemptCount: Map<string, number> = new Map();
+  private failureEvents: ValidationFailureEvent[] = [];
+  private heuristicManager: HeuristicManager | null = null;
+
+  constructor(projectRoot: string, workspaceDir: string) {
+    this.projectRoot = projectRoot;
+    this.workspaceDir = workspaceDir;
+  }
+
+  /**
+   * Set the HeuristicManager instance for ERL heuristic lookups.
+   */
+  setHeuristicManager(hm: HeuristicManager): void {
+    this.heuristicManager = hm;
+  }
+
+  /**
+   * Auto-heal a validation failure.
+   *
+   * 1. Register validation_failure event
+   * 2. Search ERL heuristics for relevant prevention/correction rules
+   * 3. Present the top retry suggestion
+   * 4. Attempt automatic fix based on error pattern
+   * 5. If fix succeeds, return retry command
+   * 6. If fails 3 times, escalate with structured report
+   */
+  async autoHeal(
+    validationCommand: string,
+    errorOutput: string
+  ): Promise<AutoHealResult> {
+    const key = this.normalizeKey(validationCommand);
+    const currentAttempts = this.attemptCount.get(key) || 0;
+    const newAttempts = currentAttempts + 1;
+    this.attemptCount.set(key, newAttempts);
+
+    // 1. Register failure event
+    const event: ValidationFailureEvent = {
+      timestamp: Date.now(),
+      command: validationCommand,
+      errorOutput,
+      suggestions: [],
+      resolved: false,
+      healAttempts: newAttempts,
+    };
+    this.failureEvents.push(event);
+
+    // 2. Search ERL heuristics for relevant prevention/correction rules
+    const relevantHeuristics = this.getHeuristicsFor(errorOutput);
+    const topSuggestion = relevantHeuristics.length > 0
+      ? relevantHeuristics[0].rule
+      : null;
+
+    // 3. Check escalation threshold (3 strikes → escalate)
+    if (newAttempts >= 3) {
+      event.escalated = true;
+      event.escalationReport = this.buildEscalationReport(
+        validationCommand, errorOutput, newAttempts, relevantHeuristics.slice(0, 3)
+      );
+      event.suggestions = relevantHeuristics.map(h => h.rule);
+      return {
+        healed: false,
+        attemptedFix: null,
+        topSuggestion,
+        escalation: true,
+        escalationReport: event.escalationReport,
+        retryCommand: undefined,
+        attempt: newAttempts,
+      };
+    }
+
+    // 4. Try to identify the issue from error output
+    const fix = this.identifyFix(errorOutput);
+    if (!fix) {
+      // No known fix pattern — present top heuristic suggestion
+      event.suggestions = relevantHeuristics.map(h => h.rule);
+      return {
+        healed: false,
+        attemptedFix: null,
+        topSuggestion,
+        escalation: false,
+        retryCommand: undefined,
+        attempt: newAttempts,
+      };
+    }
+
+    // 5. Apply the identified fix
+    const fixApplied = await this.applyFix(fix);
+    if (fixApplied) {
+      event.resolved = true;
+      event.suggestions = [fix.description];
+      return {
+        healed: true,
+        attemptedFix: fix.description,
+        topSuggestion,
+        escalation: false,
+        retryCommand: validationCommand,
+        attempt: newAttempts,
+      };
+    }
+
+    // Fix failed — return with suggestion
+    event.suggestions = relevantHeuristics.map(h => h.rule);
+    return {
+      healed: false,
+      attemptedFix: fix.description,
+      topSuggestion,
+      escalation: false,
+      retryCommand: undefined,
+      attempt: newAttempts,
+    };
+  }
+
+  /**
+   * Register a validation failure without attempting auto-heal.
+   */
+  registerFailure(command: string, errorOutput: string): ValidationFailureEvent {
+    const event: ValidationFailureEvent = {
+      timestamp: Date.now(),
+      command,
+      errorOutput,
+      suggestions: [],
+      resolved: false,
+      healAttempts: 0,
+    };
+    this.failureEvents.push(event);
+    return event;
+  }
+
+  /**
+   * Manually trigger healing for the most recent failure.
+   */
+  async healLastFailure(): Promise<AutoHealResult | null> {
+    const lastFailure = this.getLastFailure();
+    if (!lastFailure) return null;
+    return this.autoHeal(lastFailure.command, lastFailure.errorOutput);
+  }
+
+  /**
+   * Get the last unresolved failure event.
+   */
+  getLastFailure(): ValidationFailureEvent | null {
+    for (let i = this.failureEvents.length - 1; i >= 0; i--) {
+      if (!this.failureEvents[i].resolved && !this.failureEvents[i].escalated) {
+        return this.failureEvents[i];
+      }
+    }
+    return this.failureEvents.length > 0
+      ? this.failureEvents[this.failureEvents.length - 1]
+      : null;
+  }
+
+  /**
+   * Get recent failure events (last N).
+   */
+  getRecentFailures(n: number = 5): ValidationFailureEvent[] {
+    return this.failureEvents.slice(-n);
+  }
+
+  /**
+   * Get all failure events.
+   */
+  getAllFailures(): ValidationFailureEvent[] {
+    return [...this.failureEvents];
+  }
+
+  /**
+   * Identify the type of issue from error output and return a fix.
+   * Supports: formatting, missing imports/modules, type errors, syntax errors, npm installs.
+   */
+  private identifyFix(errorOutput: string): IdentifiedFix | null {
+    const lower = errorOutput.toLowerCase();
+
+    // Formatting / lint issues — apply prettier + eslint auto-fix
+    if (
+      /\bprettier\b/i.test(errorOutput) ||
+      /\bformatting\b/i.test(lower) ||
+      /\beslint\b/i.test(errorOutput) ||
+      /\blint(s|ing|)\b/i.test(errorOutput) ||
+      /unnecessary\s+escape/i.test(lower) ||
+      /trailing\s+(whitespace|space)/i.test(lower) ||
+      /expected\s+(indentation|spacing)/i.test(lower) ||
+      /code\s+style/i.test(lower)
+    ) {
+      return {
+        type: "format",
+        description: "Auto-format files with prettier and eslint --fix",
+        command: "npx prettier --write . 2>/dev/null; npx eslint --fix . 2>/dev/null; true",
+      };
+    }
+
+    // Missing imports / modules — install dependencies and suggest fix
+    if (
+      /cannot\s+find\s+(module|name|file)/i.test(errorOutput) ||
+      /module\s+not\s+found/i.test(errorOutput) ||
+      /missing\s+import/i.test(lower) ||
+      /import.*not\s+found/i.test(lower) ||
+      /no\s+such\s+file/i.test(lower) ||
+      /require\(\).*not\s+found/i.test(errorOutput)
+    ) {
+      return {
+        type: "import",
+        description: "Check for missing imports and install dependencies",
+        command: "npm install 2>/dev/null || true",
+      };
+    }
+
+    // TypeScript type errors
+    if (
+      /type\s+.*\s+is\s+not\s+assignable/i.test(errorOutput) ||
+      /cannot\s+find\s+name/i.test(errorOutput) ||
+      /property\s+.*\s+does\s+not\s+exist/i.test(errorOutput) ||
+      /is\s+not\s+a\s+type/i.test(errorOutput) ||
+      /type\s+.*not\s+assignable/i.test(errorOutput) ||
+      /Argument of type/i.test(errorOutput)
+    ) {
+      return {
+        type: "type_error",
+        description: "TypeScript type error detected — may require manual fix",
+      };
+    }
+
+    // Syntax errors
+    if (
+      /unexpected\s+token/i.test(errorOutput) ||
+      /syntax\s+error/i.test(lower) ||
+      /unexpected\s+identifier/i.test(lower) ||
+      /expected\s+.*got/i.test(errorOutput) ||
+      /parse\s+error/i.test(lower)
+    ) {
+      return {
+        type: "syntax",
+        description: "Syntax error detected — may require manual fix",
+      };
+    }
+
+    // Missing npm packages (node_modules not found, ENOENT)
+    if (
+      /cannot\s+find\s+module/i.test(errorOutput) ||
+      /ENOENT/i.test(errorOutput) ||
+      /Cannot\s+resolve\s+module/i.test(errorOutput)
+    ) {
+      if (lower.includes("node_modules") || lower.includes("npm") || lower.includes("package")) {
+        return {
+          type: "npm_install",
+          description: "Install missing npm packages",
+          command: "npm install",
+        };
+      }
+    }
+
+    // Test failures — attempt to gather more info
+    if (
+      /\btest\b/i.test(errorOutput) &&
+      (/\bfail/i.test(errorOutput) || /\berror\b/i.test(errorOutput))
+    ) {
+      return {
+        type: "test_failure",
+        description: "Test failure detected — may require manual investigation",
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Apply an identified fix by running its shell command.
+   * Returns true if the fix was applied successfully.
+   */
+  private async applyFix(fix: IdentifiedFix): Promise<boolean> {
+    if (!fix.command) return false;
+    try {
+      await this.execCommand(fix.command);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Search ERL heuristics for relevant rules based on error output.
+   */
+  private getHeuristicsFor(errorOutput: string): Heuristic[] {
+    if (!this.heuristicManager) return [];
+    const domain = this.detectDomain(errorOutput);
+    const heuristics = this.heuristicManager.getRelevantHeuristics(domain, 5);
+    // Also search for general heuristics as fallback
+    if (heuristics.length < 2) {
+      const general = this.heuristicManager.getRelevantHeuristics("general", 3);
+      return [...heuristics, ...general];
+    }
+    return heuristics;
+  }
+
+  /**
+   * Detect the relevant domain from error output for heuristic matching.
+   */
+  private detectDomain(errorOutput: string): string {
+    const lower = errorOutput.toLowerCase();
+    if (lower.includes("typescript") || lower.includes(".tsx") || /\.[jt]sx?:/i.test(errorOutput)) return "typescript";
+    if (lower.includes("javascript") || /\.js:/i.test(errorOutput)) return "javascript";
+    if (lower.includes("python") || /\.py:/i.test(errorOutput)) return "python";
+    if (lower.includes("css") || lower.includes("scss") || lower.includes("sass")) return "css";
+    if (lower.includes("json") || /\/package\.json/i.test(errorOutput)) return "json";
+    if (lower.includes("npm") || lower.includes("node_modules") || lower.includes("package.json")) return "npm";
+    if (lower.includes("test") && (lower.includes("fail") || lower.includes("error"))) return "testing";
+    return "general";
+  }
+
+  /**
+   * Build a structured escalation report for the /lemonharness:heal command.
+   */
+  private buildEscalationReport(
+    command: string,
+    errorOutput: string,
+    attempts: number,
+    relevantHeuristics: Heuristic[]
+  ): string {
+    const lines: string[] = [
+      "═══════════════════════════════════════════",
+      "  🚨 VALIDATION ESCALATION REPORT",
+      "═══════════════════════════════════════════",
+      "",
+      `  Validation Command: ${command}`,
+      `  Failed Attempts: ${attempts}`,
+      `  Timestamp: ${new Date().toISOString()}`,
+      "",
+      "  ── Error Output Summary ──",
+      `  ${errorOutput.slice(0, 800)}`,
+      "",
+    ];
+
+    if (relevantHeuristics.length > 0) {
+      lines.push("  ── Relevant ERL Heuristics ──");
+      for (const h of relevantHeuristics) {
+        lines.push(`  • [${h.type}] "${h.rule}" (confidence: ${(h.confidence * 100).toFixed(0)}%)`);
+      }
+      lines.push("");
+    }
+
+    lines.push("  ── Suggested Actions ──");
+    lines.push("  1. Review the error output above for root cause");
+    lines.push("  2. Consider manual inspection of affected files");
+    lines.push("  3. Try running the validation command with verbose output");
+    lines.push("  4. Check if dependencies or environment have changed");
+    lines.push("");
+    lines.push("═══════════════════════════════════════════");
+
+    return lines.join("\n");
+  }
+
+  /**
+   * Execute a shell command in the project root with a 30-second timeout.
+   */
+  private async execCommand(cmd: string): Promise<string> {
+    return new Promise((resolvePromise, rejectPromise) => {
+      const child = spawn("bash", ["-c", cmd], {
+        cwd: this.projectRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 30000,
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+      child.on("close", (code) => {
+        if (code === 0) resolvePromise(stdout);
+        else rejectPromise(new Error(stderr.slice(0, 200)));
+      });
+      child.on("error", (err) => rejectPromise(err));
+    });
+  }
+
+  /**
+   * Normalize a validation command to a consistent key for attempt counting.
+   */
+  private normalizeKey(command: string): string {
+    return command.trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  /**
+   * Reset attempt counter for a specific command.
+   */
+  resetAttempts(command: string): void {
+    this.attemptCount.delete(this.normalizeKey(command));
+  }
+
+  /**
+   * Reset all attempt counters (e.g., after a successful manual fix).
+   */
+  resetAllAttempts(): void {
+    this.attemptCount.clear();
+  }
+
+  /**
+   * Get the current attempt count for a command.
+   */
+  getAttemptCount(command: string): number {
+    return this.attemptCount.get(this.normalizeKey(command)) || 0;
+  }
+
+  /**
+   * Get auto-healing statistics for display.
+   */
+  getStats(): string {
+    const total = this.failureEvents.length;
+    const resolved = this.failureEvents.filter(e => e.resolved).length;
+    const escalated = this.failureEvents.filter(e => e.escalated).length;
+    const pending = total - resolved - escalated;
+
+    const lines: string[] = [
+      "🩺 Validation Auto-Healing Stats",
+      "─────────────────────────────────",
+      `  Total failures tracked: ${total}`,
+      `  Auto-healed (attempted fix): ${resolved}`,
+      `  Escalated (3+ failed attempts): ${escalated}`,
+      `  Pending: ${pending}`,
+    ];
+    if (total > 0) {
+      const successRate = ((resolved / total) * 100).toFixed(0);
+      lines.push(`  Auto-heal success rate: ${successRate}%`);
+    }
+    return lines.join("\n");
+  }
+
+  /**
+   * Get a formatted summary of all tracked failures.
+   */
+  getFailuresSummary(): string {
+    const total = this.failureEvents.length;
+    if (total === 0) return "No validation failures tracked.";
+
+    const lines: string[] = [
+      `📋 Validation Failures (${total} total):`,
+    ];
+
+    for (let i = 0; i < Math.min(total, 10); i++) {
+      const f = this.failureEvents[total - 1 - i];
+      const status = f.resolved ? "✅ healed" : f.escalated ? "🚨 escalated" : "⏳ pending";
+      const cmd = f.command.length > 50 ? f.command.slice(0, 50) + "..." : f.command;
+      const time = new Date(f.timestamp).toLocaleTimeString();
+      lines.push(`  ${status} [${time}] ${cmd} (${f.healAttempts} attempt(s))`);
+    }
+
+    return lines.join("\n");
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
