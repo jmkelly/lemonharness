@@ -218,30 +218,84 @@ threshold tables, and quality gate configuration.
 
 ---
 
-## Rule 12: Commit Hygiene — One Logical Change Per Commit
+## Rule 12: Commit Hygiene — Conventional Commits + Atomicity
 
-**Every commit should be a single, coherent, atomic change.**
+**Every commit should be a single, coherent, atomic change with a
+structured message.**
 
-- Group files by logical concern, not by chronology. A commit called
-  "Add search feature" should include all the files for that feature,
-  not a grab-bag of unrelated edits.
-- Write descriptive commit messages. The subject line should complete
-  the sentence "This commit will..." (e.g., "Add web search tool with
-  arXiv and Semantic Scholar support").
+### 12.1 Format: Conventional Commits
+
+Use the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>(<scope>): <imperative description>
+
+<body (optional)>
+
+<footer (optional)>
+```
+
+**Type** describes the nature of the change:
+
+| Type       | When to use                                |
+|------------|--------------------------------------------|
+| `feat`     | New feature                                |
+| `fix`      | Bug fix                                    |
+| `refactor` | Code change that neither adds nor fixes    |
+| `docs`     | Documentation only                         |
+| `test`     | Adding or improving tests                  |
+| `chore`    | Build, deps, tooling, config               |
+| `perf`     | Performance improvement                    |
+| `style`    | Formatting, whitespace (no logic change)   |
+| `ci`       | CI pipeline changes                        |
+
+**Scope** (optional) — the subsystem or module affected, e.g.,
+`memory`, `workspace`, `search`, `quality-gate`, `skill`, `ui`.
+
+**Description** — imperative mood, lowercase, no trailing period.
+Complete the sentence "This commit will..."
+(e.g., `feat(search): add arXiv and Semantic Scholar support`).
+
+**Breaking changes** — append `!` after type/scope, e.g.,
+`refactor(memory)!: remove deprecated TF-IDF retrieval`.
+
+**Examples:**
+```
+feat(workspace): add quality gate auto-trigger on P3 entry
+fix(memory): correct decay calculation for zero-confidence events
+refactor(search): extract URL builder into shared utility
+docs(skill): add conventional commits examples to engineering-practices
+test(harness): add coverage for phase checkpoint edge cases
+chore(deps): upgrade axios to 1.7.0
+```
+
+### 12.2 Atomic Commits
+
+- Group files by logical concern, not by chronology. A commit with
+  message `feat(search): add arXiv support` should include all and
+  only the files needed for that feature.
 - Keep commits small enough to review in one pass. If a commit touches
   10+ unrelated files, it should be split.
 - Separate mechanical changes (refactoring, renames, formatting) from
   behavioral changes (new features, bug fixes) into different commits.
-- Before creating a commit, ask: *"Would a reviewer understand what
-  changed and why from the message alone?"* If not, improve the message
-  or split the commit.
+
+### 12.3 Pre-Commit Checklist
+
+Before creating a commit, verify:
+1. ✓ Message follows `<type>(<scope>): <description>` format
+2. ✓ Description completes "This commit will..."
+3. ✓ Commit contains exactly one logical change
+4. ✓ A reviewer would understand what changed and why from the message alone
 
 **Proactive check:** When starting work that spans multiple independent
 concerns, plan the commit boundaries first. Don't wait for someone to
 ask "can you split this up?" — anticipate it.
 
-**Anti-pattern:** ⚠ The "WIP" or "misc changes" commit. If you can't
-summarize what changed in one short sentence, the commit is too large.
+**Anti-patterns:**
+- ⚠ The "WIP" or "misc changes" commit — if you can't summarize it in
+  one sentence, the commit is too large.
+- ⚠ `feat(feat):` or other redundant type/scope — don't repeat the type
+  as scope.
 
 ---
 
@@ -281,7 +335,8 @@ POSTCONDITIONS:
   - No file exceeds 400 lines
   - All tests pass before task completion
   - Dead code is removed
-  - Commits are atomic: one logical change per commit with descriptive messages
+  - Commits follow `<type>(<scope>): <description>` format and are atomic
+    (one logical change per commit)
 
 ERROR_HANDLING:
   - If complexity exceeds 10 -> refactor before proceeding

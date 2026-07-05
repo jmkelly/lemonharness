@@ -187,3 +187,23 @@ Key v3 settings:
 | **Implement** P2 | 30–60% | Build solution | Write files, install deps, run code |
 | **Validate** P3 | 60–90% | Verify & lock in | Run tests ← **quality gate auto-triggers** |
 | **Reserve** P4 | 90–100% | Preserve output | Summarize, no new changes |
+
+## Commit Convention
+
+Use `<type>(<scope>): <description>` ([Conventional Commits](https://www.conventionalcommits.org/)).
+
+| Type     | Usage                                  |
+|----------|----------------------------------------|
+| `feat`   | New feature                            |
+| `fix`    | Bug fix                                |
+| `refactor` | Code change that neither adds nor fixes |
+| `docs`   | Documentation only                     |
+| `test`   | Adding/improving tests                 |
+| `chore`  | Build, deps, tooling, config           |
+| `perf`   | Performance improvement                |
+| `style`  | Formatting, whitespace (no logic)      |
+| `ci`     | CI pipeline changes                    |
+
+Scope examples: `memory`, `workspace`, `search`, `quality-gate`, `skill`, `ui`.
+
+See `engineering-practices` skill (Rule 12) for full details.
