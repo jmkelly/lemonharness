@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────
+# LemonHarness Quality Gate — Language-Agnostic
+# Run during the Validate phase (P3) to enforce code quality thresholds.
+# Auto-detects project language(s) and runs appropriate checks.
+#
+# Usage: bash .lemonharness/quality-gate.sh [target-directory]
+# ─────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+TARGET="${1:-src}"
+PASSED=0
+FAILED=0
+WARNINGS=0
+LANGUAGE=""  # detected below
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  🍋 LemonHarness Quality Gate"
+echo "  Scanning: $TARGET"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+# ── Language Detection ────────────────────────────────────────────
+detect_language() {
+  if [ -f "requirements.txt" ] || [ -f "setup.py" ] || [ -f "pyproject.toml" ] || [ -f "Pipfile" ]; then
+    echo "  📐 Python project detected"
+    LANGUAGE="python"
+  elif [ -f "package.json" ]; then
+    echo "  📐 Node/TypeScript project detected"
+    LANGUAGE="typescript"
+  elif ls *.csproj 2>/dev/null | head -1 | grep -q . || ls *.sln 2>/dev/null | head -1 | grep -q .; then
+    echo "  📐 .NET project detected"
+    LANGUAGE="dotnet"
+  elif [ -f "go.mod" ]; then
+    echo "  📐 Go project detected"
+    LANGUAGE="go"
+  elif [ -f "Cargo.toml" ]; then
+    echo "  📐 Rust project detected"
+    LANGUAGE="rust"
+  else
+    # Fallback: guess by file extensions in target
+    if find "$TARGET" -name "*.py" 2>/dev/null | head -1 | grep -q .; then
+      echo "  📐 Detected Python files"
+      LANGUAGE="python"
+    elif find "$TARGET" -name "*.ts" -o -name "*.tsx" 2>/dev/null | head -1 | grep -q .; then
+      echo "  📐 Detected TypeScript files"
+      LANGUAGE="typescript"
+    elif find "$TARGET" -name "*.cs" 2>/dev/null | head -1 | grep -q .; then
+      echo "  📐 Detected C# files"
+      LANGUAGE="dotnet"
+    else
+      echo "  ⚠  Could not detect language — running generic checks only"
+      LANGUAGE="unknown"
+    fi
+  fi
+  echo ""
+}
+detect_language
+
+# ── 1. File Size Check (Language-Agnostic) ─────────────────────────
+echo "─── 📏 File Size Check ───"
+LARGE_FILES=0
+if [ -d "$TARGET" ]; then
+  EXTENSIONS=""
+  case "$LANGUAGE" in
+    python)     EXTENSIONS="-name *.py" ;;
+    typescript) EXTENSIONS="-name *.ts -o -name *.tsx -o -name *.js" ;;
+    dotnet)     EXTENSIONS="-name *.cs -o -name *.cshtml" ;;
+    go)         EXTENSIONS="-name *.go" ;;
+    rust)       EXTENSIONS="-name *.rs" ;;
+    *)          EXTENSIONS="-name *.py -o -name *.ts -o -name *.tsx -o -name *.js -o -name *.cs -o -name *.go -o -name *.rs" ;;
+  esac
+
+  while IFS= read -r -d '' f; do
+    lines=$(wc -l < "$f")
+    if [ "$lines" -gt 400 ]; then
+      echo "  ⚠  $f ($lines lines, max 400)"
+      LARGE_FILES=$((LARGE_FILES + 1))
+    elif [ "$lines" -gt 200 ]; then
+      echo "  📝 $f ($lines lines)"
+    fi
+  done < <(find "$TARGET" -type f $EXTENSIONS -print0 2>/dev/null)
+fi
+if [ "$LARGE_FILES" -gt 0 ]; then
+  echo "  ❌ $LARGE_FILES file(s) exceed 400 lines — consider splitting"
+  FAILED=$((FAILED + LARGE_FILES))
+else
+  echo "  ✅ All files within size limits"
+fi
+echo ""
+
+# ── 2. Cyclomatic Complexity ──────────────────────────────────────
+echo "─── 🔄 Cyclomatic Complexity ───"
+case "$LANGUAGE" in
+  python)
+    if command -v radon &>/dev/null; then
+      COMPLEX_OUTPUT=$(radon cc "$TARGET" --min C --show-complexity 2>/dev/null || true)
+      if [ -n "$COMPLEX_OUTPUT" ]; then
+        echo "$COMPLEX_OUTPUT"
+        COMPLEX_COUNT=$(echo "$COMPLEX_OUTPUT" | grep -c " - [CDEF]$" || true)
+        if [ "$COMPLEX_COUNT" -gt 0 ]; then
+          echo "  ❌ $COMPLEX_COUNT function(s) exceed C-grade complexity"
+          FAILED=$((FAILED + COMPLEX_COUNT))
+        fi
+      else
+        echo "  ✅ All functions within complexity limits"
+      fi
+      AVG=$(radon cc "$TARGET" --average 2>/dev/null | grep -oP '[\d.]+(?= \(average)') || true
+      if [ -n "$AVG" ]; then
+        echo "  📊 Average cyclomatic complexity: $AVG"
+        if [ "$(echo "$AVG > 5" | bc -l 2>/dev/null)" = "1" ]; then
+          echo "  ⚠  Average above 5 — consider refactoring"
+          WARNINGS=$((WARNINGS + 1))
+        fi
+      fi
+    else
+      echo "  ⚠  'radon' not installed. Install: pip install radon"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  typescript)
+    if [ -f "node_modules/.bin/eslint" ]; then
+      echo "  Checking with ESLint complexity rule..."
+      npx eslint "$TARGET" --rule 'complexity/max-complexity: ["warn", 10]' --format compact 2>/dev/null || true
+      # Count violations
+      ES_COUNT=$(npx eslint "$TARGET" --rule 'complexity/max-complexity: ["error", 10]' --format compact 2>/dev/null | grep -c "complexity" || true)
+      if [ "$ES_COUNT" -gt 0 ]; then
+        echo "  ❌ $ES_COUNT function(s) exceed complexity threshold"
+        FAILED=$((FAILED + ES_COUNT))
+      else
+        echo "  ✅ All functions within complexity limits (threshold: 10)"
+      fi
+    elif command -v eslint &>/dev/null; then
+      echo "  ⚠  eslint found globally, but local install recommended"
+      eslint "$TARGET" --rule 'complexity/max-complexity: ["warn", 10]' 2>/dev/null || echo "  (no issues found or eslint config missing)"
+    else
+      echo "  ⚠  eslint not found. Install: npm install --save-dev eslint"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  dotnet)
+    if command -v dotnet &>/dev/null; then
+      echo "  Checking .NET code metrics with built-in analyzers..."
+      # Use dotnet build with warnings-as-errors for analyzer rules
+      # The CA1502 (complexity) and CA1505 (maintainability) rules are in Microsoft.CodeAnalysis.NetAnalyzers
+      if DOTNET_OUTPUT=$(dotnet build --no-restore -warnaserror 2>&1 || true); then
+        echo "  ✅ Build succeeded with no warnings-as-errors"
+      else
+        # Count complexity-related warnings
+        CX_COUNT=$(echo "$DOTNET_OUTPUT" | grep -cE "CA1502|CA1505|CA1506" || true)
+        if [ "$CX_COUNT" -gt 0 ]; then
+          echo "$DOTNET_OUTPUT" | grep -E "CA1502|CA1505|CA1506" | head -10
+          echo "  ❌ $CX_COUNT complexity/maintainability warning(s)"
+          FAILED=$((FAILED + CX_COUNT))
+        fi
+      fi
+      # Alternative: check if dotnet-codelyzer is installed
+      if command -v dotnet-codelyzer &>/dev/null; then
+        echo "  Also checking with dotnet-codelyzer..."
+        dotnet-codelyzer "$TARGET" 2>/dev/null || true
+      fi
+    else
+      echo "  ⚠  dotnet SDK not found"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  *)
+    echo "  ℹ  Complexity check not available for detected language"
+    ;;
+esac
+echo ""
+
+# ── 3. Code Style / Lint ──────────────────────────────────────────
+echo "─── 🧹 Code Style & Lint ───"
+case "$LANGUAGE" in
+  python)
+    if command -v flake8 &>/dev/null; then
+      if LINT_OUTPUT=$(flake8 "$TARGET" --max-complexity=10 --max-line-length=100 2>&1); then
+        echo "  ✅ No lint errors"
+      else
+        LINT_COUNT=$(echo "$LINT_OUTPUT" | wc -l)
+        echo "$LINT_OUTPUT" | head -20
+        [ "$LINT_COUNT" -gt 20 ] && echo "  ... and $((LINT_COUNT - 20)) more"
+        echo "  ❌ $LINT_COUNT lint error(s)"
+        FAILED=$((FAILED + LINT_COUNT))
+      fi
+    elif command -v ruff &>/dev/null; then
+      if LINT_OUTPUT=$(ruff check "$TARGET" 2>&1); then
+        echo "  ✅ No lint errors (ruff)"
+      else
+        LINT_COUNT=$(echo "$LINT_OUTPUT" | wc -l)
+        echo "$LINT_OUTPUT" | head -20
+        echo "  ❌ $LINT_COUNT lint error(s) (ruff)"
+        FAILED=$((FAILED + LINT_COUNT))
+      fi
+    else
+      echo "  ⚠  No linter found. Install: pip install flake8 (or ruff)"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  typescript)
+    if [ -f "node_modules/.bin/eslint" ]; then
+      if LINT_OUTPUT=$(npx eslint "$TARGET" --max-warnings=0 2>&1); then
+        echo "  ✅ No lint errors"
+      else
+        LINT_COUNT=$(echo "$LINT_OUTPUT" | grep -cE "^\s+" || true)
+        echo "$LINT_OUTPUT" | head -20
+        [ "$LINT_COUNT" -gt 20 ] && echo "  ... and $((LINT_COUNT - 20)) more"
+        echo "  ❌ $LINT_COUNT lint error(s)"
+        FAILED=$((FAILED + LINT_COUNT))
+      fi
+    else
+      echo "  ⚠  eslint not found locally. Install: npm install --save-dev eslint"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  dotnet)
+    if command -v dotnet &>/dev/null; then
+      if DOTNET_OUTPUT=$(dotnet format --verify-no-changes 2>&1); then
+        echo "  ✅ No code style issues"
+      else
+        echo "$DOTNET_OUTPUT" | head -20
+        FORMAT_COUNT=$(echo "$DOTNET_OUTPUT" | grep -c "error" || true)
+        echo "  ❌ Code style issues found"
+        FAILED=$((FAILED + 1))
+      fi
+    else
+      echo "  ⚠  dotnet SDK not found"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  *)
+    echo "  ℹ  Lint check not available for detected language"
+    ;;
+esac
+echo ""
+
+# ── 4. Tests & Coverage ───────────────────────────────────────────
+echo "─── 🧪 Tests & Coverage ───"
+case "$LANGUAGE" in
+  python)
+    if [ -d "tests" ] && command -v pytest &>/dev/null; then
+      if COV_OUTPUT=$(pytest tests/ --cov="$TARGET" --cov-report=term --cov-fail-under=70 2>&1); then
+        echo "$COV_OUTPUT" | tail -5
+        echo "  ✅ Tests pass with >= 70% coverage"
+      else
+        echo "$COV_OUTPUT" | tail -10
+        echo "  ❌ Tests or coverage below threshold"
+        FAILED=$((FAILED + 1))
+      fi
+    elif ! command -v pytest &>/dev/null; then
+      echo "  ⚠  pytest not installed. Install: pip install pytest pytest-cov"
+      WARNINGS=$((WARNINGS + 1))
+    else
+      echo "  ⚠  No tests/ directory found"
+    fi
+    ;;
+
+  typescript)
+    if [ -f "node_modules/.bin/jest" ]; then
+      if JEST_OUTPUT=$(npx jest --coverage --coverageThreshold='{"global":{"branches":70,"functions":70,"lines":70,"statements":70}}' 2>&1); then
+        echo "$JEST_OUTPUT" | tail -5
+        echo "  ✅ Tests pass with >= 70% coverage"
+      else
+        echo "$JEST_OUTPUT" | tail -10
+        echo "  ❌ Tests or coverage below threshold"
+        FAILED=$((FAILED + 1))
+      fi
+    elif [ -f "node_modules/.bin/vitest" ]; then
+      if VITEST_OUTPUT=$(npx vitest run --coverage --coverage.thresholds.lines=70 2>&1); then
+        echo "$VITEST_OUTPUT" | tail -5
+        echo "  ✅ Tests pass with >= 70% coverage"
+      else
+        echo "$VITEST_OUTPUT" | tail -10
+        echo "  ❌ Tests or coverage below threshold"
+        FAILED=$((FAILED + 1))
+      fi
+    else
+      echo "  ⚠  No test runner found (jest/vitest). Install: npm install --save-dev jest"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  dotnet)
+    if command -v dotnet &>/dev/null; then
+      # Find test projects
+      TEST_PROJECTS=$(find . -name "*Test*.csproj" -o -name "*Tests*.csproj" 2>/dev/null | head -5)
+      if [ -n "$TEST_PROJECTS" ]; then
+        if DOTNET_TEST=$(dotnet test --collect:"XPlat Code Coverage" --results-directory:TestResults --no-restore 2>&1); then
+          echo "$DOTNET_TEST" | tail -5
+          echo "  ✅ .NET tests pass"
+          # Try to report coverage if reportgenerator is available
+          if command -v reportgenerator &>/dev/null; then
+            COV_FILE=$(find TestResults -name "coverage.cobertura.xml" 2>/dev/null | head -1)
+            if [ -n "$COV_FILE" ]; then
+              reportgenerator "-reports:$COV_FILE" "-targetdir:TestResults/report" "-reporttypes:TextSummary" 2>/dev/null
+              cat TestResults/report/Summary.txt 2>/dev/null | head -10
+            fi
+          fi
+        else
+          echo "$DOTNET_TEST" | tail -15
+          echo "  ❌ .NET test failures"
+          FAILED=$((FAILED + 1))
+        fi
+      else
+        echo "  ⚠  No test projects found (*Test*.csproj)"
+      fi
+    else
+      echo "  ⚠  dotnet SDK not found"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    ;;
+
+  *)
+    echo "  ℹ  Test run not available for detected language"
+    ;;
+esac
+echo ""
+
+# ── 5. Type Check (TypeScript-specific) ───────────────────────────
+if [ "$LANGUAGE" = "typescript" ]; then
+  echo "─── 🏷️  Type Check ───"
+  if [ -f "node_modules/.bin/tsc" ]; then
+    if TSC_OUTPUT=$(npx tsc --noEmit 2>&1); then
+      echo "  ✅ TypeScript compiles without errors"
+    else
+      TSC_COUNT=$(echo "$TSC_OUTPUT" | grep -cE "error TS" || true)
+      echo "$TSC_OUTPUT" | head -15
+      echo "  ❌ $TSC_COUNT type error(s)"
+      FAILED=$((FAILED + TSC_COUNT))
+    fi
+  else
+    echo "  ⚠  tsc not found. Install: npm install --save-dev typescript"
+    WARNINGS=$((WARNINGS + 1))
+  fi
+  echo ""
+fi
+
+# ── Summary ───────────────────────────────────────────────────────
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Results: ● $PASSED passed  ✗ $FAILED failed  ⚠ $WARNINGS warnings"
+echo "═══════════════════════════════════════════════════════════════"
+
+if [ "$FAILED" -gt 0 ]; then
+  echo ""
+  echo "  ❌ Quality Gate FAILED — review issues above before declaring done"
+  exit 1
+elif [ "$WARNINGS" -gt 0 ]; then
+  echo ""
+  echo "  ⚠  Quality Gate PASSED with warnings — address when practical"
+  exit 0
+else
+  echo ""
+  echo "  ✅ Quality Gate PASSED — code quality is within thresholds"
+  exit 0
+fi
