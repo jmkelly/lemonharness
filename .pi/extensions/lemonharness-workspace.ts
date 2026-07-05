@@ -1205,6 +1205,9 @@ let lastKnownCommitHash: string | null = null;
 let autoReflectTurnCounter = 0;
 let lastDistillEventCount = 0;
 
+// Flag to prevent redundant auto-commits
+let autoCommitDone = false;
+
 // ─────────────────────────────────────────────────────────────────────────
 // Extension Export
 // ─────────────────────────────────────────────────────────────────────────
@@ -1217,6 +1220,7 @@ export default function (pi: ExtensionAPI) {
     try { lastKnownCommitHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim(); } catch { lastKnownCommitHash = null; }
     autoReflectTurnCounter = 0;
     lastDistillEventCount = 0;
+    autoCommitDone = false;
 
     const settings = readLemonHarnessSettings();
     workspaceManager.initialize(ctx.cwd, settings.workspace);
@@ -1413,8 +1417,23 @@ export default function (pi: ExtensionAPI) {
         }
       } catch { /* subsystems not available */ }
 
-      // Auto-generate session summary on P4 (Reserve) entry
+      // Auto-commit remaining changes on P4 (Reserve) entry (if not already committed)
       if (currentPhase.phase === "reserve" && previousPhase !== "reserve") {
+        try {
+          const status = execSync("git status --porcelain", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+          if (status && !autoCommitDone) {
+            const diffStats = execSync("git diff --stat", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+            const firstLine = (sessionPromptDescription || "").split(/\n/)[0].slice(0, 72);
+            const summary = firstLine ? `chore(reserve): ${firstLine}` : "chore(reserve): auto-commit remaining changes";
+            execSync("git add -A", { cwd: ctx.cwd, stdio: "pipe" });
+            execSync(`git commit -m "${summary}" -m "${diffStats}"`, { cwd: ctx.cwd, stdio: "pipe" });
+            const hash = execSync("git rev-parse --short HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+            ctx.ui.notify(`📸 Auto-committed remaining changes as ${hash}`, "success");
+            autoCommitDone = true;
+          }
+        } catch { /* git not available or nothing to commit */ }
+
+        // Auto-generate session summary on P4 (Reserve) entry
         try {
           const summaryMod = await import("./lemonharness-summary");
           const summary = new summaryMod.SessionSummary(join(workspaceManager.getWorkspaceDir()));
@@ -1519,8 +1538,27 @@ export default function (pi: ExtensionAPI) {
           qgChild.on("close", (code) => {
             const output = qgStdout + qgStderr;
             const passed = code === 0 || output.includes("All checks pass");
-            if (passed) ctx.ui.notify("✅ Auto quality gate PASSED — code quality within thresholds", "success");
-            else ctx.ui.notify(`⚠️ Auto quality gate FAILED — review issues before continuing\n${output.slice(0, 500)}`, "warning");
+            if (passed) {
+              ctx.ui.notify("✅ Auto quality gate PASSED — code quality within thresholds", "success");
+              // Auto-commit on quality gate pass
+              if (!autoCommitDone) {
+                try {
+                  const status = execSync("git status --porcelain", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+                  if (status) {
+                    const diffStats = execSync("git diff --stat", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+                    const firstLine = (sessionPromptDescription || "").split(/\n/)[0].slice(0, 80);
+                    const summary = firstLine ? firstLine : "auto-commit after passing validation";
+                    execSync("git add -A", { cwd: ctx.cwd, stdio: "pipe" });
+                    execSync(`git commit -m "feat: ${summary}" -m "${diffStats}"`, { cwd: ctx.cwd, stdio: "pipe" });
+                    const hash = execSync("git rev-parse --short HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+                    ctx.ui.notify(`📸 Auto-committed as ${hash} — quality gate passed`, "success");
+                    autoCommitDone = true;
+                  }
+                } catch { /* git not available or nothing to commit */ }
+              }
+            } else {
+              ctx.ui.notify(`⚠️ Auto quality gate FAILED — review issues before continuing\n${output.slice(0, 500)}`, "warning");
+            }
           });
         });
       }
