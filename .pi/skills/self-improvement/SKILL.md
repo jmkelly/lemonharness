@@ -190,14 +190,22 @@ Cross-domain   → Propose adding to base skill (engineering-practices or genera
 
 **Periodically step back and assess your own performance.**
 
-At natural break points (phase transitions, task completion, after failures):
+Self-reviews are now **automatically triggered** — you don't need to remember to do them:
+
+| Trigger | Action | Mechanism |
+|---|---|---|
+| **Git commit detected** | Auto-runs structured reflection + ERL heuristic extraction | Workspace extension checks `git HEAD` on `turn_end` |
+| **Phase transition (P3→P4)** | Session summary auto-generated with confidence review | Workspace extension on Reserve entry |
+| **Manual** | Run `/improvement:reflect` anytime | Registered command |
+
+When the auto-reflection prompt appears, respond to it immediately:
 
 1. **What worked well?** → Record as `solution` or `pattern`, tag `self-improvement`.
 2. **What didn't work?** → Record as `failure` with root cause, tag `self-improvement`.
 3. **What should I do differently?** → Record as `insight`, tag `self-improvement`.
 4. **What am I still bad at?** → Acknowledge and flag for future improvement.
 
-Use the `/improvement:reflect` command to trigger a structured self-review.
+Use the `/improvement:reflect` command to trigger a structured self-review manually.
 
 **At task completion (end of Reserve phase):**
 Always run a final review:

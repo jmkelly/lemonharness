@@ -30,7 +30,7 @@ import {
 } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -1198,6 +1198,10 @@ let trailInjectionCounter = 0;
 // Stored for session summary generation
 export let sessionPromptDescription = "";
 
+// Git commit tracking for auto-reflection
+let lastKnownCommitHash: string | null = null;
+let reflectionTriggeredForCommit = false;
+
 // ─────────────────────────────────────────────────────────────────────────
 // Extension Export
 // ─────────────────────────────────────────────────────────────────────────
@@ -1206,6 +1210,10 @@ export default function (pi: ExtensionAPI) {
   // ── Session Events ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    // Capture initial git HEAD for commit detection
+    try { lastKnownCommitHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim(); } catch { lastKnownCommitHash = null; }
+    reflectionTriggeredForCommit = false;
+
     const settings = readLemonHarnessSettings();
     workspaceManager.initialize(ctx.cwd, settings.workspace);
     try { await mkdir(workspaceManager.getWorkspaceDir(), { recursive: true }); } catch { /* ok */ }
@@ -1547,6 +1555,60 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`⚠️  [Health Check] ${alert.name}: ${alert.message}`, "warning");
         }
       }
+    }
+
+    // ── Auto-Reflection on Commit ────────────────────────────────
+    // Detect new git commits and auto-trigger improvement reflection
+    if (!reflectionTriggeredForCommit) {
+      try {
+        const currentHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+        if (lastKnownCommitHash !== null && currentHash !== lastKnownCommitHash) {
+          reflectionTriggeredForCommit = true;
+          lastKnownCommitHash = currentHash;
+
+          // Build reflection summary from recent trail
+          const trail = executionLogger.getExecutionTrail();
+          const recentTurns = trail.slice(-6);
+          const errors = trail.filter(t => t.isError).length;
+          const lines = [
+            "📝 Post-Commit Reflection (auto-triggered)",
+            "──────────────────────────────────────────",
+            "", `Commit detected: ${currentHash.slice(0, 7)}`,
+            "", "Take a moment to reflect:",
+            "", "1️⃣  What did I just accomplish?",
+            "2️⃣  What worked well? → Record as solution/pattern",
+            "3️⃣  What didn't work? → Record as failure with root cause",
+            "4️⃣  What should I do differently next time? → Record as insight",
+            "", `📊 Session: ${trail.length} tool calls, ${errors} errors`,
+            "", "Use `workspace_memory_record` to save lessons.",
+            'Use `workspace_memory_search query="self-improvement"` to find past lessons.',
+          ];
+
+          // Try ERL heuristic extraction
+          try {
+            const mod = await import("./lemonharness-subsystems");
+            const workspaceDir2 = workspaceManager.getWorkspaceDir();
+            const hm = new mod.HeuristicManager(workspaceDir2);
+            await hm.init();
+            const extracted: string[] = [];
+            for (const t of recentTurns) {
+              if (t.isError && t.toolName) {
+                const h = hm.extractHeuristic(
+                  "failure", `${t.toolName} failed`,
+                  JSON.stringify(t.args || ""), "general"
+                );
+                if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
+              }
+            }
+            if (extracted.length > 0) {
+              lines.push("", "🧪 Extracted Heuristics (ERL):");
+              lines.push(...extracted);
+            }
+          } catch { /* subsystems not available */ }
+
+          ctx.ui.notify(lines.join("\n"), "info");
+        }
+      } catch { /* not a git repo or git not available */ }
     }
 
     // ── Context Budget Auto-Check ────────────────────────────────
