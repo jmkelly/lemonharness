@@ -79,7 +79,20 @@ if [ -d "$TARGET" ]; then
     elif [ "$lines" -gt 200 ]; then
       echo "  📝 $f ($lines lines)"
     fi
-  done < <(find "$TARGET" -type f $EXTENSIONS -print0 2>/dev/null)
+  done < <(find "$TARGET" -type f \( $EXTENSIONS \) -print0 2>/dev/null)
+
+  # Also scan .pi/extensions/ for TypeScript projects (main code location)
+  if [ "$LANGUAGE" = "typescript" ] && [ -d ".pi/extensions" ]; then
+    while IFS= read -r -d '' f; do
+      lines=$(wc -l < "$f")
+      if [ "$lines" -gt 400 ]; then
+        echo "  ⚠  $f ($lines lines, max 400)"
+        LARGE_FILES=$((LARGE_FILES + 1))
+      elif [ "$lines" -gt 200 ]; then
+        echo "  📝 $f ($lines lines)"
+      fi
+    done < <(find .pi/extensions -type f \( $EXTENSIONS \) -print0 2>/dev/null)
+  fi
 fi
 if [ "$LARGE_FILES" -gt 0 ]; then
   echo "  ❌ $LARGE_FILES file(s) exceed 400 lines — consider splitting"
