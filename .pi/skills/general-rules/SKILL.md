@@ -37,16 +37,31 @@ description: >
    correction that only fixes the task but not the process will repeat.
 
 8. **Pre-Acceptance Quality Gate**: Before accepting work from any sub-agent,
-   or before declaring any task complete, you MUST run the quality gate
-   against the affected files. The gate checks are:
-   - ✓ File size ≤ 400 lines per file (Rule 5 of engineering-practices)
+   or before declaring any task complete, you MUST run the pre-acceptance
+   quality gate against the affected files:
+
+   ```bash
+   bash .lemonharness/pre-acceptance-gate.sh [targets...]
+   ```
+
+   The gate checks are:
+   - ✓ File size ≤ 400 lines per file  (Rule 5 of engineering-practices)
    - ✓ No dead code, debug prints, or TODO/FIXME/HACK markers
-   - ✓ Error handling present (no bare `catch {}`)
    - ✓ Code compiles / passes syntax check
-   - ✓ Cyclomatic complexity ≤ 10 per function
+   - ✓ No excessive nesting (complexity red flags)
+
    If the gate fails, fix the issues before accepting the work. Do not
    accumulate quality debt across multiple sub-agent runs — check after
    each one.
+
+   Additionally, run the full quality gate during the **Validate** phase (P3):
+
+   ```bash
+   bash .lemonharness/quality-gate.sh
+   ```
+
+   The quality gate runs deeper checks: cyclomatic complexity analysis,
+   lint/style enforcement, test execution with coverage, and type checking.
 
 ## Usage
 

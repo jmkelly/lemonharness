@@ -79,7 +79,7 @@ if [ -d "$TARGET" ]; then
     elif [ "$lines" -gt 200 ]; then
       echo "  📝 $f ($lines lines)"
     fi
-  done < <(find "$TARGET" -type f \( $EXTENSIONS \) -print0 2>/dev/null)
+  done < <(set -f; find "$TARGET" -type f \( $EXTENSIONS \) -print0 2>/dev/null)
 
   # Also scan .pi/extensions/ for TypeScript projects (main code location)
   if [ "$LANGUAGE" = "typescript" ] && [ -d ".pi/extensions" ]; then
@@ -91,7 +91,7 @@ if [ -d "$TARGET" ]; then
       elif [ "$lines" -gt 200 ]; then
         echo "  📝 $f ($lines lines)"
       fi
-    done < <(find .pi/extensions -type f \( $EXTENSIONS \) -print0 2>/dev/null)
+    done < <(set -f; find .pi/extensions -type f \( $EXTENSIONS \) -print0 2>/dev/null)
   fi
 fi
 if [ "$LARGE_FILES" -gt 0 ]; then
