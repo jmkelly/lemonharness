@@ -64,23 +64,85 @@ function estimateBudgetFromPrompt(prompt: string): number {
   return 20 * 60 * 1000;
 }
 
+/**
+ * Generate a simple unified diff between two strings.
+ * Produces a single-hunk unified diff suitable for snapshot recording.
+ */
+function computeUnifiedDiff(oldStr: string, newStr: string, relPath: string): string {
+  if (oldStr === newStr) return "";
+
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+
+  // Find first differing line
+  const minLen = Math.min(oldLines.length, newLines.length);
+  let firstDiff = 0;
+  while (firstDiff < minLen && oldLines[firstDiff] === newLines[firstDiff]) {
+    firstDiff++;
+  }
+
+  // Find last differing line (from end)
+  let oldEnd = oldLines.length;
+  let newEnd = newLines.length;
+  while (oldEnd > firstDiff && newEnd > firstDiff && oldLines[oldEnd - 1] === newLines[newEnd - 1]) {
+    oldEnd--;
+    newEnd--;
+  }
+
+  const contextSize = 3;
+  const hunkStart = Math.max(0, firstDiff - contextSize);
+  const oldHunkEnd = Math.min(oldLines.length, oldEnd + contextSize);
+  const newHunkEnd = Math.min(newLines.length, newEnd + contextSize);
+
+  const lines: string[] = [];
+  lines.push(`--- a/${relPath}`);
+  lines.push(`+++ b/${relPath}`);
+
+  const hdrOldLen = oldHunkEnd - hunkStart;
+  const hdrNewLen = newHunkEnd - hunkStart;
+  lines.push(`@@ -${hunkStart + 1},${hdrOldLen} +${hunkStart + 1},${hdrNewLen} @@`);
+
+  // Context before first change
+  for (let k = hunkStart; k < firstDiff; k++) {
+    lines.push(` ${oldLines[k]}`);
+  }
+
+  // Deleted lines (from old version)
+  for (let k = firstDiff; k < oldEnd; k++) {
+    lines.push(`-${oldLines[k]}`);
+  }
+
+  // Inserted lines (from new version)
+  for (let k = firstDiff; k < newEnd; k++) {
+    lines.push(`+${newLines[k]}`);
+  }
+
+  // Context after last change (use newLines — same as oldLines for unchanged region)
+  const contextEnd = Math.min(oldHunkEnd, newHunkEnd);
+  for (let k = oldEnd; k < contextEnd; k++) {
+    lines.push(` ${newLines[k]}`);
+  }
+
+  return lines.join("\n");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────
 
-interface WorkspaceFileEntry {
+export interface WorkspaceFileEntry {
   path: string;
   action: "create" | "modify" | "delete";
   timestamp: number;
 }
 
-interface WorkspaceProcessEntry {
+export interface WorkspaceProcessEntry {
   command: string;
   pid: number;
   timestamp: number;
 }
 
-interface WorkspaceState {
+export interface WorkspaceState {
   files: WorkspaceFileEntry[];
   processes: WorkspaceProcessEntry[];
   dependencies: string[];
@@ -88,7 +150,7 @@ interface WorkspaceState {
   lastReset: number;
 }
 
-interface TimeDirectorConfig {
+export interface TimeDirectorConfig {
   totalBudgetMs: number;
   exploreRatio: number;
   implementRatio: number;
@@ -96,9 +158,9 @@ interface TimeDirectorConfig {
   graceBand: number;
 }
 
-type TimePhaseName = "explore" | "implement" | "validate" | "reserve";
+export type TimePhaseName = "explore" | "implement" | "validate" | "reserve";
 
-interface TimePhase {
+export interface TimePhase {
   phase: TimePhaseName;
   elapsedMs: number;
   remainingMs: number;
@@ -106,8 +168,8 @@ interface TimePhase {
   totalProgress: number;
 }
 
-interface LogEntry {
-  type: "tool_call" | "validation";
+export interface LogEntry {
+  type: "tool_call" | "validation" | "confidence";
   timestamp: number;
   toolName?: string;
   args?: unknown;
@@ -117,9 +179,11 @@ interface LogEntry {
   command?: string;
   passed?: boolean;
   output?: string;
+  /** Self-assessed confidence for a significant output (score 1-5). */
+  confidence?: { score: number; rationale: string; flagForReview: boolean };
 }
 
-interface SkillInfo {
+export interface SkillInfo {
   name: string;
   description: string;
   path: string;
@@ -128,7 +192,7 @@ interface SkillInfo {
 // ── v3: Phase Checkpoint ──────────────────────────────────────────
 // Research basis: arXiv:2602.06413 — Theorem A & Structural Consequence
 
-interface PhaseCheckpoint {
+export interface PhaseCheckpoint {
   phase: string;
   timestamp: number;
   elapsedMs: number;
@@ -142,7 +206,7 @@ interface PhaseCheckpoint {
 // Workspace Manager — Singleton
 // ─────────────────────────────────────────────────────────────────────────
 
-class WorkspaceManager {
+export class WorkspaceManager {
   private workspaceDir: string = "";
   private projectRoot: string = "";
   private files: WorkspaceFileEntry[] = [];
@@ -245,7 +309,7 @@ class WorkspaceManager {
 // Time Director — Phase Tracking
 // ─────────────────────────────────────────────────────────────────────────
 
-class TimeDirector {
+export class TimeDirector {
   private startTime: number = 0;
   private config: TimeDirectorConfig;
 
@@ -366,7 +430,7 @@ class TimeDirector {
 // Execution Logger — Trail & Validation Feedback
 // ─────────────────────────────────────────────────────────────────────────
 
-class ExecutionLogger {
+export class ExecutionLogger {
   private trail: LogEntry[] = [];
   private consecutiveErrors: number = 0;
   private lastErrorType: string = "";
@@ -391,6 +455,29 @@ class ExecutionLogger {
     }
 
     // Keep trail manageable
+    if (this.trail.length > 200) {
+      this.trail = this.trail.slice(-100);
+    }
+  }
+
+  /**
+   * Record a self-assessed confidence score for a significant output.
+   * Scores: 1=very low, 2=low, 3=medium, 4=high, 5=very high.
+   * Scores < 3 are automatically flagged for human review.
+   */
+  recordConfidence(toolName: string, args: unknown, score: number, rationale: string) {
+    const clampedScore = Math.max(1, Math.min(5, Math.round(score)));
+    this.trail.push({
+      type: "confidence",
+      timestamp: Date.now(),
+      toolName,
+      args,
+      confidence: {
+        score: clampedScore,
+        rationale: rationale.slice(0, 500),
+        flagForReview: clampedScore < 3,
+      },
+    });
     if (this.trail.length > 200) {
       this.trail = this.trail.slice(-100);
     }
@@ -482,6 +569,506 @@ class ExecutionLogger {
   }
 }
 
+// ── Context Budget Tracker ─────────────────────────────────────────
+// Token estimation and context limit monitoring
+
+/**
+ * Context budget tracker for monitoring token usage.
+ * Uses heuristic: 1 token ≈ 4 chars for text, 1 token ≈ 1 char for code.
+ */
+export class ContextBudgetTracker {
+  private modelContextLimit: number;
+  private memoryRetrieved: Array<{ content: string; timestamp: number }> = [];
+  private skillsLoaded: Array<{ name: string; content: string }> = [];
+  private warnedThresholds: Set<number> = new Set();
+
+  constructor(modelContextLimit: number = 128000) {
+    this.modelContextLimit = modelContextLimit;
+  }
+
+  setLimit(limit: number): void {
+    this.modelContextLimit = limit;
+  }
+
+  getLimit(): number {
+    return this.modelContextLimit;
+  }
+
+  resetWarnings(): void {
+    this.warnedThresholds.clear();
+  }
+
+  /**
+   * Estimate tokens from text content.
+   * Heuristic: 1 token ≈ 4 chars for text, 1 token ≈ 1 char for code.
+   */
+  estimateTokens(text: string, isCode: boolean = false): number {
+    if (!text) return 0;
+    const chars = text.length;
+    if (isCode) return Math.ceil(chars);
+    return Math.ceil(chars / 4);
+  }
+
+  /**
+   * Auto-detect if content looks like code vs natural text.
+   */
+  private detectIsCode(content: unknown): boolean {
+    if (typeof content !== "string") return false;
+    const codePatterns = [
+      /function\s+\w+\s*\(/, /=>\s*{/, /import\s+.*from/, /export\s+(default\s+)?/,
+      /const\s+\w+\s*=/, /let\s+\w+\s*=/, /var\s+\w+\s*=/, /class\s+\w+/,
+      /if\s*\(/, /for\s*\(/, /while\s*\(/, /switch\s*\(/, /try\s*{/,
+      /\.\w+\(/, /;\s*$/, /```/, /\bdef\s+\w+\s*\(/, /\bclass\s+\w+/,
+      /^\s*#\s*include/, /^\s*using\s+namespace/, /^\s*import\s+/, /\bconsole\./,
+      /\bmodule\.exports/, /\brequire\(/, /^\s*<\?php/, /^\s*#!/,
+    ];
+    let matches = 0;
+    for (const pattern of codePatterns) {
+      if (pattern.test(content)) matches++;
+      if (matches >= 2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Estimate tokens from a LogEntry.
+   */
+  estimateTokensForEntry(entry: LogEntry): number {
+    let total = 0;
+    if (entry.args) {
+      const argsStr = typeof entry.args === "string" ? entry.args : JSON.stringify(entry.args);
+      total += this.estimateTokens(argsStr, this.detectIsCode(argsStr));
+    }
+    if (entry.result) {
+      const resultStr = typeof entry.result === "string" ? entry.result : JSON.stringify(entry.result);
+      total += this.estimateTokens(resultStr, this.detectIsCode(resultStr));
+    }
+    if (entry.output) {
+      total += this.estimateTokens(entry.output, this.detectIsCode(entry.output));
+    }
+    return total;
+  }
+
+  /**
+   * Track a memory retrieval for context estimation.
+   */
+  trackMemoryRetrieval(content: string): void {
+    this.memoryRetrieved.push({ content, timestamp: Date.now() });
+    // Keep last 50 retrievals
+    if (this.memoryRetrieved.length > 50) {
+      this.memoryRetrieved = this.memoryRetrieved.slice(-50);
+    }
+  }
+
+  /**
+   * Track a skill load for context estimation.
+   */
+  trackSkillLoaded(name: string, content: string): void {
+    // Update or add skill
+    const existing = this.skillsLoaded.findIndex(s => s.name === name);
+    if (existing >= 0) {
+      this.skillsLoaded[existing] = { name, content };
+    } else {
+      this.skillsLoaded.push({ name, content });
+    }
+  }
+
+  /**
+   * Remove a tracked skill.
+   */
+  untrackSkill(name: string): void {
+    this.skillsLoaded = this.skillsLoaded.filter(s => s.name !== name);
+  }
+
+  /**
+   * Get the list of tracked memory retrievals.
+   */
+  getMemoryRetrievals(): Array<{ content: string; timestamp: number }> {
+    return [...this.memoryRetrieved];
+  }
+
+  /**
+   * Get the list of tracked skills.
+   */
+  getSkillsLoaded(): Array<{ name: string; content: string }> {
+    return [...this.skillsLoaded];
+  }
+
+  /**
+   * Get structured context status from live data.
+   */
+  getContextStatus(
+    trail: LogEntry[],
+  ): ContextStatusResult {
+    const trailTokens = trail.reduce((sum, entry) => sum + this.estimateTokensForEntry(entry), 0);
+    const memoryTokens = this.memoryRetrieved.reduce((sum, entry) => sum + this.estimateTokens(entry.content), 0);
+    const skillsTokens = this.skillsLoaded.reduce((sum, skill) => sum + this.estimateTokens(skill.content || "", this.detectIsCode(skill.content || "")), 0);
+
+    const totalTokens = trailTokens + memoryTokens + skillsTokens;
+    const percentUsed = Math.min(100, Math.round((totalTokens / this.modelContextLimit) * 100));
+
+    // Split trail into recent and compressed (older than the last 10)
+    const maxRecent = 10;
+    const recentCount = Math.min(trail.length, maxRecent);
+    const compressedCount = Math.max(0, trail.length - maxRecent);
+
+    const recentTrail = trail.slice(-maxRecent);
+    const olderTrail = trail.slice(0, -maxRecent);
+    const recentTok = recentTrail.reduce((sum, entry) => sum + this.estimateTokensForEntry(entry), 0);
+    const compressedTok = olderTrail.reduce((sum, entry) => sum + this.estimateTokensForEntry(entry), 0);
+
+    return {
+      totalTokens,
+      percentUsed,
+      modelLimit: this.modelContextLimit,
+      trail: {
+        totalCount: trail.length,
+        recentCount,
+        compressedCount,
+        recentTokens: recentTok,
+        compressedTokens: compressedTok,
+        totalTokens: trailTokens,
+      },
+      memory: {
+        count: this.memoryRetrieved.length,
+        tokens: memoryTokens,
+      },
+      skills: {
+        count: this.skillsLoaded.length,
+        tokens: skillsTokens,
+      },
+      recommendation: this.getRecommendation(percentUsed, trail.length, this.memoryRetrieved.length, this.skillsLoaded.length),
+    };
+  }
+
+  /**
+   * Get recommendation based on percentage used and component sizes.
+   */
+  getRecommendation(
+    percentUsed: number,
+    trailCount?: number,
+    memoryCount?: number,
+    skillsCount?: number,
+  ): string {
+    const parts: string[] = [];
+
+    if (percentUsed >= 90) {
+      parts.push("⚠️ CRITICAL: Context nearly full. Immediate action recommended:");
+    } else if (percentUsed >= 70) {
+      parts.push("⚠️ High context usage. Consider compressing:");
+    } else if (percentUsed >= 50) {
+      parts.push("📋 Moderate context usage. Monitor these areas:");
+    } else {
+      return "✅ Context usage is healthy — no action needed.";
+    }
+
+    if (trailCount && trailCount > 50) {
+      parts.push("  • Execution trail: " + trailCount + " entries — consider resetting with /lemonharness:reset");
+    } else if (trailCount && trailCount > 20) {
+      parts.push("  • Execution trail: " + trailCount + " entries — will be compressed automatically");
+    }
+
+    if (memoryCount && memoryCount > 20) {
+      parts.push("  • Memory retrieved: " + memoryCount + " entries — use more specific memory queries");
+    }
+
+    if (skillsCount && skillsCount > 3) {
+      parts.push("  • Skills loaded: " + skillsCount + " — only load essential skills");
+    } else if (skillsCount && skillsCount > 0 && percentUsed >= 70) {
+      // If few skills but still high usage, suggest trail compression
+      if (trailCount && trailCount > 10) {
+        parts.push("  • Compress execution trail with summarizeCompressed or /lemonharness:reset");
+      }
+    }
+
+    if (parts.length === 1) {
+      // No specific actions suggested
+      parts.push("  • Consider resetting trail with /lemonharness:reset");
+      parts.push("  • Narrow memory search scope");
+      parts.push("  • Load only essential skills (/skill:<name>)");
+    }
+
+    return parts.join("\n");
+  }
+
+  /**
+   * Format status for display in notifications.
+   */
+  formatStatus(status: ContextStatusResult): string {
+    const lines = [
+      "🧠 Context Budget Status",
+      "────────────────────────",
+      "",
+      `Estimated context: ~${this.formatTokens(status.totalTokens)} tokens (${status.percentUsed}% of ${this.formatTokens(status.modelLimit)} limit)`,
+      "",
+      `📋 Trail entries: ${status.trail.totalCount} total`,
+      `   Recent: ${status.trail.recentCount} entries (~${this.formatTokens(status.trail.recentTokens)} tokens)`,
+      `   Compressed: ${status.trail.compressedCount} entries (~${this.formatTokens(status.trail.compressedTokens)} tokens)`,
+      `   Total: ~${this.formatTokens(status.trail.totalTokens)} tokens`,
+      "",
+      `💾 Memory retrieved: ${status.memory.count} entries (~${this.formatTokens(status.memory.tokens)} tokens)`,
+      `🔧 Skills loaded: ${status.skills.count} skills (~${this.formatTokens(status.skills.tokens)} tokens)`,
+      "",
+      `📊 Recommendation:`,
+      status.recommendation,
+    ];
+    return lines.join("\n");
+  }
+
+  /**
+   * Check if any warning thresholds are hit and return messages.
+   * Returns an array of {threshold, message} for new threshold hits.
+   */
+  checkThresholds(percentUsed: number): Array<{ threshold: number; message: string }> {
+    const thresholds = [50, 70, 90];
+    const hits: Array<{ threshold: number; message: string }> = [];
+    for (const threshold of thresholds) {
+      if (percentUsed >= threshold && !this.warnedThresholds.has(threshold)) {
+        this.warnedThresholds.add(threshold);
+        const emoji = threshold >= 90 ? "🔴" : threshold >= 70 ? "⚠️" : "📋";
+        hits.push({
+          threshold,
+          message: `${emoji} Context usage at ${percentUsed}% (exceeded ${threshold}% threshold). Use /lemonharness:context for details.`,
+        });
+      }
+    }
+    return hits;
+  }
+
+  private formatTokens(tokens: number): string {
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    return `${tokens}`;
+  }
+}
+
+/**
+ * Structured result from getContextStatus().
+ */
+export interface ContextStatusResult {
+  totalTokens: number;
+  percentUsed: number;
+  modelLimit: number;
+  trail: {
+    totalCount: number;
+    recentCount: number;
+    compressedCount: number;
+    recentTokens: number;
+    compressedTokens: number;
+    totalTokens: number;
+  };
+  memory: {
+    count: number;
+    tokens: number;
+  };
+  skills: {
+    count: number;
+    tokens: number;
+  };
+  recommendation: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Snapshot Manager — Workspace Snapshots & Rollback
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface SnapshotFileEntry {
+  path: string;
+  action: "create" | "modify" | "delete";
+  diffFile: string;
+  oldContentFile?: string;
+}
+
+export interface SnapshotMeta {
+  id: string;
+  timestamp: number;
+  description: string;
+  files: SnapshotFileEntry[];
+}
+
+export interface SnapshotFileChange {
+  path: string;
+  oldContent: string | null;
+  newContent: string | null;
+  action: "create" | "modify" | "delete";
+}
+
+function sanitizePathForFile(p: string): string {
+  return p.replace(/[^a-zA-Z0-9_\-.]/g, "_");
+}
+
+export class SnapshotManager {
+  private snapshotsDir: string;
+
+  constructor(workspaceDir: string) {
+    this.snapshotsDir = join(workspaceDir, "snapshots");
+  }
+
+  async init(): Promise<void> {
+    await mkdir(this.snapshotsDir, { recursive: true });
+  }
+
+  getSnapshotsDir(): string {
+    return this.snapshotsDir;
+  }
+
+  /**
+   * Create a snapshot capturing the diff of changed files.
+   * Stores diffs and original content in `.lemonharness/snapshots/<id>/`.
+   */
+  async createSnapshot(
+    id: string,
+    description: string,
+    changedFiles: SnapshotFileChange[],
+  ): Promise<SnapshotMeta> {
+    const snapshotDir = join(this.snapshotsDir, id);
+    await mkdir(snapshotDir, { recursive: true });
+
+    const meta: SnapshotMeta = {
+      id,
+      timestamp: Date.now(),
+      description,
+      files: [],
+    };
+
+    for (const file of changedFiles) {
+      const safeName = sanitizePathForFile(file.path);
+      const diffFileName = `${safeName}.diff`;
+      const diffPath = join(snapshotDir, diffFileName);
+      const oldContentFileName = `${safeName}.old`;
+      const oldContentPath = join(snapshotDir, oldContentFileName);
+
+      // Generate diff between old and new
+      const oldStr = file.oldContent ?? "";
+      const newStr = file.newContent ?? "";
+      const diff = computeUnifiedDiff(oldStr, newStr, file.path);
+      if (diff) {
+        await writeFile(diffPath, diff, "utf-8");
+      }
+
+      // Store old content for reliable rollback
+      if (file.oldContent !== null) {
+        await writeFile(oldContentPath, file.oldContent, "utf-8");
+      }
+
+      const entry: SnapshotFileEntry = {
+        path: file.path,
+        action: file.action,
+        diffFile: diffFileName,
+      };
+      if (file.oldContent !== null) {
+        entry.oldContentFile = oldContentFileName;
+      }
+      meta.files.push(entry);
+    }
+
+    // Write metadata JSON
+    const metaPath = join(snapshotDir, "meta.json");
+    await writeFile(metaPath, JSON.stringify(meta, null, 2), "utf-8");
+
+    return meta;
+  }
+
+  /**
+   * List all available snapshots, newest first.
+   */
+  async listSnapshots(): Promise<SnapshotMeta[]> {
+    try {
+      const entries = await readdir(this.snapshotsDir, { withFileTypes: true });
+      const snapshots: SnapshotMeta[] = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const metaPath = join(this.snapshotsDir, entry.name, "meta.json");
+        try {
+          const content = await readFile(metaPath, "utf-8");
+          snapshots.push(JSON.parse(content));
+        } catch {
+          // Skip directories without valid meta.json
+        }
+      }
+      snapshots.sort((a, b) => b.timestamp - a.timestamp);
+      return snapshots;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get a specific snapshot by ID.
+   */
+  async getSnapshot(id: string): Promise<SnapshotMeta | null> {
+    const metaPath = join(this.snapshotsDir, id, "meta.json");
+    try {
+      const content = await readFile(metaPath, "utf-8");
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Restore workspace to the state captured in a snapshot.
+   * For each file:
+   *   - If oldContent exists, restore it (reverse the change)
+   *   - If oldContent is null and action was "create", delete the file
+   */
+  async restoreSnapshot(id: string, projectRoot: string): Promise<{ restored: string[]; errors: string[] }> {
+    const meta = await this.getSnapshot(id);
+    if (!meta) {
+      throw new Error(`Snapshot "${id}" not found`);
+    }
+
+    const restored: string[] = [];
+    const errors: string[] = [];
+
+    for (const file of meta.files) {
+      const absPath = resolve(projectRoot, file.path);
+      try {
+        if (file.oldContentFile) {
+          // Restore from old content backup
+          const oldContentPath = join(this.snapshotsDir, id, file.oldContentFile);
+          const oldContent = await readFile(oldContentPath, "utf-8");
+          await mkdir(dirname(absPath), { recursive: true });
+          await writeFile(absPath, oldContent, "utf-8");
+          restored.push(file.path);
+        } else if (file.action === "create") {
+          // File was created — delete it to rollback
+          try {
+            const { unlink } = await import("node:fs/promises");
+            await unlink(absPath);
+            restored.push(file.path + " (deleted)");
+          } catch {
+            // File may already be gone
+            restored.push(file.path + " (already removed)");
+          }
+        }
+      } catch (e: any) {
+        errors.push(`${file.path}: ${e.message}`);
+      }
+    }
+
+    return { restored, errors };
+  }
+
+  /**
+   * Format a snapshot list as a human-readable string.
+   */
+  formatSnapshotList(meta: SnapshotMeta): string {
+    const date = new Date(meta.timestamp);
+    const timeStr = date.toLocaleString();
+    const lines: string[] = [
+      `📸 Snapshot: ${meta.id}`,
+      `   When: ${timeStr}`,
+      `   Description: ${meta.description}`,
+      `   Files: ${meta.files.length}`,
+    ];
+    for (const f of meta.files) {
+      const icon = f.action === "create" ? "+" : f.action === "delete" ? "-" : "~";
+      lines.push(`     ${icon} ${f.path}`);
+    }
+    return lines.join("\n");
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Rule Knowledge Manager — Skill Discovery & Domain Detection
 // ─────────────────────────────────────────────────────────────────────────
@@ -566,6 +1153,7 @@ interface LemonHarnessSettings {
   executionLogging?: { enabled?: boolean; maxTrailEntries?: number; injectTrailInterval?: number };
   structuredTools?: { enabled?: boolean; interceptBuiltins?: boolean };
   heuristics?: { enabled?: boolean; maxHeuristicsPerPrompt?: number };
+  contextBudget?: { enabled?: boolean; modelContextLimit?: number; warnThresholds?: number[] };
   skills?: { pseudocodeEnabled?: boolean; verifyOnLoad?: boolean };
   [key: string]: any;
 }
@@ -590,13 +1178,25 @@ function readLemonHarnessSettings(): LemonHarnessSettings {
 // Extension State
 // ─────────────────────────────────────────────────────────────────────────
 
-const workspaceManager = new WorkspaceManager();
-const timeDirector = new TimeDirector();
-const executionLogger = new ExecutionLogger();
+export const workspaceManager = new WorkspaceManager();
+export const timeDirector = new TimeDirector();
+export const executionLogger = new ExecutionLogger();
+export const snapshotManager = new SnapshotManager(
+  join(process.cwd(), ".lemonharness"),
+);
+
+export const contextBudgetTracker = new ContextBudgetTracker();
+
+// Health checker — periodically checks approach validity, budget, prerequisites
+export let healthChecker: any = null;
+
 const ruleKnowledge = new RuleKnowledgeManager();
 
 let previousPhase: TimePhaseName | null = null;
 let trailInjectionCounter = 0;
+
+// Stored for session summary generation
+export let sessionPromptDescription = "";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Extension Export
@@ -609,11 +1209,28 @@ export default function (pi: ExtensionAPI) {
     const settings = readLemonHarnessSettings();
     workspaceManager.initialize(ctx.cwd, settings.workspace);
     try { await mkdir(workspaceManager.getWorkspaceDir(), { recursive: true }); } catch { /* ok */ }
+    // Initialize snapshot manager with actual workspace dir
+    const wsDir = workspaceManager.getWorkspaceDir();
+    (snapshotManager as any)["snapshotsDir"] = join(wsDir, "snapshots");
+    await snapshotManager.init();
     timeDirector.start();
     const budget = settings.timeAwareness?.defaultBudgetMs ?? 300_000;
     timeDirector.setBudget(budget);
+    // Initialize context budget tracker with configured limit
+    if (settings.contextBudget?.enabled !== false) {
+      const limit = settings.contextBudget?.modelContextLimit ?? 128000;
+      contextBudgetTracker.setLimit(limit);
+      contextBudgetTracker.resetWarnings();
+    }
     const skillsDir = join(ctx.cwd, ".pi", "skills");
     await ruleKnowledge.discover(skillsDir);
+    // Initialize health checker with default checks
+    try {
+      const mod = await import("./lemonharness-subsystems");
+      healthChecker = new mod.HealthChecker();
+      healthChecker.registerDefaultChecks(5);
+    } catch { /* subsystems not available — skip health checks */ }
+
     ctx.ui.setStatus("lemonharness", "🍋 LemonHarness active");
   });
 
@@ -626,6 +1243,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const settings = readLemonHarnessSettings();
     const systemPromptParts: string[] = [];
+
+    // Store initial prompt description for session summary
+    sessionPromptDescription = event.prompt.slice(0, 1000);
 
     // 1. Workspace boundary instructions
     const wsDir = workspaceManager.getWorkspaceDir();
@@ -756,6 +1376,62 @@ export default function (pi: ExtensionAPI) {
       );
       ctx.ui.setStatus("lemonharness-checkpoint", `📍 Checkpoint: ${cp.phase} (DA: ${(cp.decisionAdvantage * 100).toFixed(0)}%)`);
 
+      // Auto-generate session summary on P4 (Reserve) entry
+      if (currentPhase.phase === "reserve" && previousPhase !== "reserve") {
+        try {
+          const summaryMod = await import("./lemonharness-summary");
+          const summary = new summaryMod.SessionSummary(join(workspaceManager.getWorkspaceDir()));
+          const markdown = await summaryMod.buildSummaryFromLiveDataExternal(
+            summary,
+            workspaceManager,
+            timeDirector,
+            executionLogger,
+            ctx,
+            sessionPromptDescription,
+          );
+          const path = await summary.saveSummary(markdown);
+          ctx.ui.notify(`📝 Session summary auto-generated and saved to \`${path}\``, "success");
+        } catch (err: any) {
+          ctx.ui.notify(`⚠️ Auto-generate summary note: ${err.message}`, "info");
+        }
+
+        // Auto-generate confidence summary on P4 (Reserve) entry
+        const confTrail = executionLogger.getExecutionTrail().filter(e => e.type === "confidence" && e.confidence);
+        if (confTrail.length > 0) {
+          const confLines: string[] = [
+            "📊 Confidence Summary (P4 Reserve)",
+            "─────────────────────────────────────",
+            "",
+          ];
+          const flagged = confTrail.filter(e => e.confidence!.flagForReview);
+          const scores = confTrail.map(e => e.confidence!.score);
+          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+          confLines.push(`Total recorded: ${confTrail.length}`);
+          confLines.push(`Average confidence: ${avg.toFixed(1)}/5`);
+          confLines.push(`Range: ${Math.min(...scores)}–${Math.max(...scores)}`);
+          confLines.push(`Flagged for review: ${flagged.length}`);
+
+          if (flagged.length > 0) {
+            confLines.push("", "🔔 OUTPUTS NEEDING HUMAN REVIEW:");
+            confLines.push("");
+            for (const entry of flagged) {
+              const c = entry.confidence!;
+              const label: Record<number, string> = { 1: "Very Low", 2: "Low" };
+              confLines.push(`   ⚠ [${label[c.score] || c.score}] ${entry.toolName || "unknown"}`);
+              confLines.push(`      Rationale: ${c.rationale}`);
+            }
+            confLines.push("", "Review these outputs before finalizing.");
+          } else {
+            confLines.push("", "✅ No outputs flagged for review — confidence is acceptable.");
+          }
+
+          ctx.ui.notify(confLines.join("\n"), flagged.length > 0 ? "warning" : "success");
+        } else {
+          ctx.ui.notify("ℹ No confidence scores recorded this session.", "info");
+        }
+      }
+
       // Auto-trigger quality gate on P3 (Validate) entry
       if (currentPhase.phase === "validate" && !qualityGateAlreadyTriggered) {
         qualityGateAlreadyTriggered = true;
@@ -795,6 +1471,61 @@ export default function (pi: ExtensionAPI) {
       "lemonharness-workspace",
       `📁 ${state.files.length} files, ${state.dependencies.length} deps`,
     );
+
+    // Run periodic health checks
+    if (healthChecker) {
+      const phase = timeDirector.getCurrentPhase();
+      const trail = executionLogger.getExecutionTrail();
+      const totalToolCalls = trail.filter(t => t.type === "tool_call").length;
+      const totalErrors = trail.filter(t => t.isError).length;
+      const validationsPassed = trail.filter(t => t.passed === true).length;
+      const validationsFailed = trail.filter(t => t.passed === false).length;
+      const recentTrail = trail.slice(-10);
+      const recentErrors = recentTrail.filter(t => t.isError).length;
+      const errorRate = recentTrail.length > 0 ? recentErrors / recentTrail.length : 0;
+      const regressionMsg = executionLogger.detectRegression();
+
+      healthChecker.runChecks({
+        elapsedMs: timeDirector.getElapsed(),
+        totalBudgetMs: timeDirector.getBudget(),
+        currentPhase: phase.phase,
+        phaseProgress: phase.phaseProgress,
+        totalProgress: phase.totalProgress,
+        totalToolCalls,
+        totalErrors,
+        consecutiveErrors: executionLogger.getConsecutiveErrors(),
+        errorRate,
+        regressionDetected: regressionMsg !== null,
+        regressionMessage: regressionMsg,
+        filesModified: state.files.length,
+        dependencies: state.dependencies,
+        dependencyCount: state.dependencies.length,
+        validationsPassed,
+        validationsFailed,
+      });
+
+      // Surface pending alerts
+      const alerts = healthChecker.getAlerts();
+      for (const alert of alerts) {
+        if (alert.severity === "red") {
+          ctx.ui.notify(`🔴 [Health Check] ${alert.name}: ${alert.message}`, "error");
+        } else if (alert.severity === "yellow") {
+          ctx.ui.notify(`⚠️  [Health Check] ${alert.name}: ${alert.message}`, "warning");
+        }
+      }
+    }
+
+    // ── Context Budget Auto-Check ────────────────────────────────
+    // Check threshold warnings on every turn end
+    const settings = readLemonHarnessSettings();
+    if (settings.contextBudget?.enabled !== false) {
+      const trail = executionLogger.getExecutionTrail();
+      const status = contextBudgetTracker.getContextStatus(trail);
+      const thresholdHits = contextBudgetTracker.checkThresholds(status.percentUsed);
+      for (const hit of thresholdHits) {
+        ctx.ui.notify(hit.message, hit.threshold >= 90 ? "error" : hit.threshold >= 70 ? "warning" : "info");
+      }
+    }
   });
 
   // ── Tool Call Interception — Workspace Boundary ──────────────────
@@ -842,9 +1573,32 @@ export default function (pi: ExtensionAPI) {
       event.isError,
     );
 
+    // Track memory retrievals for context budget estimation
+    if (event.toolName === "workspace_memory_search") {
+      const contentStr = typeof event.content === "string" ? event.content : JSON.stringify(event.content || "");
+      contextBudgetTracker.trackMemoryRetrieval(contentStr);
+    }
+
+    // Track record tool output too (it gets injected into context)
+    if (event.toolName === "workspace_memory_record") {
+      const contentStr = typeof event.content === "string" ? event.content : JSON.stringify(event.content || "");
+      contextBudgetTracker.trackMemoryRetrieval(contentStr);
+    }
+
     if (event.isError) {
       const regression = executionLogger.detectRegression();
-      if (regression) ctx.ui.notify(`🧠 Regression detected: ${regression}`, "warning");
+      if (regression) {
+        ctx.ui.notify(`🧠 Regression detected: ${regression}`, "warning");
+        // Auto-suggest rollback when 3+ consecutive failures detected
+        const snapshots = await snapshotManager.listSnapshots();
+        if (snapshots.length > 0) {
+          const latest = snapshots[0];
+          ctx.ui.notify(
+            `💡 Auto-suggestion: Consider rollback with /lemonharness:rollback ${latest.id} to restore state before failures`,
+            "info",
+          );
+        }
+      }
     }
   });
 
@@ -882,8 +1636,24 @@ export default function (pi: ExtensionAPI) {
       if (await pathExists(absPath) && !params.overwrite) {
         return { content: [{ type: "text" as const, text: `Error: File "${params.path}" already exists. Set overwrite=true to replace.` }], isError: true, details: {} };
       }
+      // Read old content for snapshot before modifying
+      let oldContent: string | null = null;
+      let fileExisted = false;
+      if (await pathExists(absPath)) {
+        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* ok */ }
+      }
       await writeFile(absPath, params.content, "utf-8");
-      workspaceManager.trackFileWrite(params.path, "create");
+      workspaceManager.trackFileWrite(params.path, fileExisted ? "modify" : "create");
+      // Auto-create snapshot for this change
+      try {
+        const snapshotId = `auto-${Date.now()}`;
+        await snapshotManager.createSnapshot(snapshotId, `auto: ${fileExisted ? "write" : "create"} ${params.path}`, [{
+          path: params.path,
+          oldContent,
+          newContent: params.content,
+          action: fileExisted ? "modify" : "create",
+        }]);
+      } catch { /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Written ${params.path} (${params.content.length} chars)` }], details: { path: params.path, size: params.content.length } };
     },
   });
@@ -903,8 +1673,27 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
       }
       await mkdir(dirname(absPath), { recursive: true });
+      // Read old content for snapshot before modifying
+      let oldContent: string | null = null;
+      let fileExisted = false;
+      if (await pathExists(absPath)) {
+        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* ok */ }
+      }
       await appendFile(absPath, params.content, "utf-8");
+      // Read new content after append for snapshot diff
+      let newContent: string = "";
+      try { newContent = await readFile(absPath, "utf-8"); } catch { /* ok */ }
       workspaceManager.trackFileWrite(params.path, "modify");
+      // Auto-create snapshot for this change
+      try {
+        const snapshotId = `auto-${Date.now()}`;
+        await snapshotManager.createSnapshot(snapshotId, `auto: append to ${params.path}`, [{
+          path: params.path,
+          oldContent,
+          newContent,
+          action: fileExisted ? "modify" : "create",
+        }]);
+      } catch { /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Appended to ${params.path}` }], details: { path: params.path } };
     },
   });
@@ -1048,6 +1837,12 @@ export default function (pi: ExtensionAPI) {
       const regressions = executionLogger.detectRegression();
       const decisionAdvantage = timeDirector.getDecisionAdvantageDecay();
 
+      const confidenceEntries = trail.filter(e => e.type === "confidence" && e.confidence);
+      const avgScore = confidenceEntries.length > 0
+        ? (confidenceEntries.reduce((sum, e) => sum + e.confidence!.score, 0) / confidenceEntries.length).toFixed(1)
+        : "N/A";
+      const lowConfItems = confidenceEntries.filter(e => e.confidence!.flagForReview);
+
       const lines = [
         "🍋 LemonHarness Status",
         "───────────────────────",
@@ -1060,7 +1855,16 @@ export default function (pi: ExtensionAPI) {
         "",
         `📊 Tool calls: ${totalCalls} | Errors: ${errors} | Validations: ${validations} (${passedValidations} passed)`,
         regressions ? `⚠ Regression: ${regressions}` : "✓ No regressions detected",
+        "",
+        `📊 Confidence: ${confidenceEntries.length} recorded | Avg: ${avgScore}/5 | Flagged: ${lowConfItems.length}`,
       ];
+
+      if (lowConfItems.length > 0) {
+        lines.push("", "🔔 Items flagged for human review (confidence < 3):");
+        for (const entry of lowConfItems) {
+          lines.push(`   ⚠ ${entry.toolName || "unknown"}: ${entry.confidence!.rationale.slice(0, 80)}`);
+        }
+      }
 
       const checkpoints = timeDirector.getPhaseCheckpoints();
       if (checkpoints.length > 0) {
@@ -1071,6 +1875,16 @@ export default function (pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  pi.registerCommand("lemonharness:context", {
+    description: "Show context budget estimation — token usage, trail, memory, skills, and recommendations",
+    handler: async (_args, ctx) => {
+      const trail = executionLogger.getExecutionTrail();
+      const status = contextBudgetTracker.getContextStatus(trail);
+      const message = contextBudgetTracker.formatStatus(status);
+      ctx.ui.notify(message, "info");
     },
   });
 
@@ -1098,6 +1912,17 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("lemonharness:health", {
+    description: "Show periodic health check status: approach validity, budget health, prerequisite changes",
+    handler: async (_args, ctx) => {
+      if (!healthChecker) {
+        ctx.ui.notify("Health checker not available (subsystems module not loaded)", "warning");
+        return;
+      }
+      ctx.ui.notify(healthChecker.getStatus(), "info");
+    },
+  });
+
   pi.registerCommand("lemonharness:validate", {
     description: "Run a validation command and record its result. Usage: /lemonharness:validate <command>",
     handler: async (args, ctx) => {
@@ -1116,6 +1941,52 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(passed ? `✅ Validation passed\n${output.slice(0, 1000)}` : `❌ Validation failed (exit ${code})\n${output.slice(0, 1000)}`, passed ? "success" : "error");
         });
       } catch (e: any) { ctx.ui.notify(`❌ Validation error: ${e.message}`, "error"); }
+    },
+  });
+
+  pi.registerCommand("lemonharness:confidence", {
+    description: "Show all recorded confidence scores, flagging low-confidence outputs for review. Usage: /lemonharness:confidence",
+    handler: async (_args, ctx) => {
+      const trail = executionLogger.getExecutionTrail();
+      const confidenceEntries = trail.filter(e => e.type === "confidence" && e.confidence);
+
+      if (confidenceEntries.length === 0) {
+        ctx.ui.notify("No confidence scores recorded yet. Use workspace_write / workspace_validate / workspace_memory_record to generate outputs, then call recordConfidence().", "info");
+        return;
+      }
+
+      const lines: string[] = [
+        "📊 Confidence Scores",
+        "─────────────────────",
+      ];
+
+      const lowConfidence = confidenceEntries.filter(e => e.confidence!.flagForReview);
+      const flagged: string[] = [];
+
+      for (const entry of confidenceEntries) {
+        const c = entry.confidence!;
+        const label: Record<number, string> = { 1: "🔴 Very Low", 2: "🟠 Low", 3: "🟡 Medium", 4: "🟢 High", 5: "🟢 Very High" };
+        const stars = "★".repeat(c.score) + "☆".repeat(5 - c.score);
+        lines.push(`\n${label[c.score] || "⚪ Unknown"} (${c.score}/5) ${stars}`);
+        lines.push(`   Tool: ${entry.toolName || "unknown"}`);
+        lines.push(`   Rationale: ${c.rationale}`);
+        if (c.flagForReview) {
+          lines.push(`   ⚠ FLAGGED FOR REVIEW`);
+          flagged.push(entry.toolName || "unknown");
+        }
+      }
+
+      lines.push("", "─────────────────────");
+      lines.push(`Total: ${confidenceEntries.length} | Flagged for review: ${flagged.length}`);
+
+      if (flagged.length > 0) {
+        lines.push("", "🔔 Items needing human review:");
+        for (const name of flagged) {
+          lines.push(`   ⚠ ${name}`);
+        }
+      }
+
+      ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 
@@ -1233,6 +2104,121 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── /lemonharness:snapshot,* Commands ──────────────────────────
+
+  pi.registerCommand("lemonharness:snapshot", {
+    description: "Create a manual snapshot of all tracked workspace files. Usage: /lemonharness:snapshot [description]",
+    handler: async (args, ctx) => {
+      const state = workspaceManager.getWorkspaceState();
+      const files = state.files;
+      if (files.length === 0) {
+        ctx.ui.notify("No files tracked yet. Use workspace_write or workspace_append first.", "warning");
+        return;
+      }
+
+      const desc = args.trim() || `Manual snapshot at ${new Date().toLocaleString()}`;
+      const snapshotId = `manual-${Date.now()}`;
+      const changedFiles: SnapshotFileChange[] = [];
+
+      // Read current content of all tracked files
+      for (const file of files) {
+        const absPath = resolve(workspaceManager.getProjectRoot(), file.path);
+        try {
+          const content = await readFile(absPath, "utf-8");
+          changedFiles.push({
+            path: file.path,
+            oldContent: null, // old not applicable for full-state snapshot
+            newContent: content,
+            action: "modify",
+          });
+        } catch {
+          // File may have been deleted
+          changedFiles.push({
+            path: file.path,
+            oldContent: null,
+            newContent: null,
+            action: "delete",
+          });
+        }
+      }
+
+      try {
+        const meta = await snapshotManager.createSnapshot(snapshotId, desc, changedFiles);
+        ctx.ui.notify(
+          `📸 Snapshot created: ${snapshotId}\n   ${desc}\n   ${meta.files.length} file(s) captured`,
+          "success",
+        );
+      } catch (e: any) {
+        ctx.ui.notify(`❌ Failed to create snapshot: ${e.message}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("lemonharness:snapshots", {
+    description: "List all available snapshots",
+    handler: async (_args, ctx) => {
+      try {
+        const snapshots = await snapshotManager.listSnapshots();
+        if (snapshots.length === 0) {
+          ctx.ui.notify("No snapshots available. Use /lemonharness:snapshot to create one, or workspace_write/workspace_append to auto-create.", "info");
+          return;
+        }
+        const lines = [
+          "📸 Available Snapshots",
+          "─────────────────────",
+        ];
+        for (const snap of snapshots) {
+          lines.push("");
+          lines.push(snapshotManager.formatSnapshotList(snap));
+        }
+        ctx.ui.notify(lines.join("\n"), "info");
+      } catch (e: any) {
+        ctx.ui.notify(`❌ Failed to list snapshots: ${e.message}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("lemonharness:rollback", {
+    description: "Restore workspace to a previous snapshot state. Usage: /lemonharness:rollback <id>",
+    handler: async (args, ctx) => {
+      const id = args.trim();
+      if (!id) {
+        const snapshots = await snapshotManager.listSnapshots();
+        if (snapshots.length === 0) {
+          ctx.ui.notify("No snapshots available. Usage: /lemonharness:rollback <snapshot-id>", "error");
+          return;
+        }
+        ctx.ui.notify(
+          `Usage: /lemonharness:rollback <snapshot-id>\nAvailable snapshots:\n${snapshots.map(s => s.id).join(", ")}`,
+          "info",
+        );
+        return;
+      }
+
+      ctx.ui.notify(`🔄 Restoring snapshot "${id}"...`, "info");
+
+      try {
+        const result = await snapshotManager.restoreSnapshot(id, workspaceManager.getProjectRoot());
+        const lines = [
+          `🔄 Rollback complete for snapshot "${id}":`,
+          `   Restored: ${result.restored.length} file(s)`,
+        ];
+        for (const r of result.restored) {
+          lines.push(`     ✓ ${r}`);
+        }
+        if (result.errors.length > 0) {
+          lines.push(`   Errors: ${result.errors.length}`);
+          for (const e of result.errors) {
+            lines.push(`     ✗ ${e}`);
+          }
+        }
+        ctx.ui.notify(lines.join("\n"), result.errors.length === 0 ? "success" : "warning");
+      } catch (e: any) {
+        ctx.ui.notify(`❌ Rollback failed: ${e.message}`, "error");
+      }
+    },
+  });
+
   // /skill:<name> — Manually load skill content (v3: with SaP pseudocode verification)
   pi.on("input", async (event, ctx) => {
     const skillMatch = event.text.match(/^\/skill:([\w-]+)/);
@@ -1288,6 +2274,9 @@ export default function (pi: ExtensionAPI) {
         }
       }
     } catch { /* SaP not available — show full skill content */ }
+
+    // Track skill load for context budget estimation
+    contextBudgetTracker.trackSkillLoaded(skillName, skillContent);
 
     ctx.ui.notify(`${output.slice(0, 3500)}${output.length > 3500 ? "\n...(truncated)" : ""}`, "info");
     return { action: "handled" as const };
