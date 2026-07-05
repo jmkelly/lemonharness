@@ -21,18 +21,43 @@
  *   {"type":"result","success":true/false,"summary":"...","files":[],"messages":[]}
  */
 
-const PI_SDK_PATH = '/home/james/.nvm/versions/node/v22.18.0/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
-const PI_AI_PATH = '/home/james/.nvm/versions/node/v22.18.0/lib/node_modules/@earendil-works/pi-ai/dist/index.js';
-
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// Dynamic imports for pi SDK (needs absolute path)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(__dirname, '..');
+
+// Resolve SDK paths from project's node_modules, with fallback
+async function resolveSdkPathAsync(pkgName, subPath) {
+  const paths = [
+    resolve(PROJECT_ROOT, 'node_modules', pkgName, subPath),
+    resolve(process.cwd(), 'node_modules', pkgName, subPath),
+  ];
+  for (const p of paths) {
+    if (existsSync(p)) return p;
+  }
+  // Last resort: check global install via require.resolve
+  try {
+    const { execSync } = await import('node:child_process');
+    const globalPath = execSync(
+      `node -e "try { console.log(require.resolve('${pkgName.replace(/'/g, "'\\'")}/${subPath.replace(/'/g, "'\\'")}')); } catch(e) { process.exit(1); }"`,
+      { encoding: 'utf-8', timeout: 5000 }
+    ).trim();
+    if (globalPath) return globalPath;
+  } catch {}
+  throw new Error(`Cannot find ${pkgName} SDK. Run: npm install in ${PROJECT_ROOT}`);
+}
+
+// Dynamic imports for pi SDK (resolved dynamically)
+let PI_SDK_PATH, PI_AI_PATH;
 let createAgentSession, SessionManager, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager;
 let getModel;
 
 async function loadPiSDK() {
+  PI_SDK_PATH = await resolveSdkPathAsync('@earendil-works/pi-coding-agent', 'dist/index.js');
+  PI_AI_PATH = await resolveSdkPathAsync('@earendil-works/pi-ai', 'dist/index.js');
   const pi = await import(PI_SDK_PATH);
   createAgentSession = pi.createAgentSession;
   SessionManager = pi.SessionManager;

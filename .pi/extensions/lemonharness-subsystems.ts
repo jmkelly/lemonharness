@@ -1217,7 +1217,22 @@ export class SaPVerifier {
     return terms.size === 0 || matches / terms.size >= 0.3;
   }
 
-  private checkBinding(_contract: SkillContract): boolean { return true; }
+  private checkBinding(contract: SkillContract): boolean {
+    // All inputs must have non-empty types
+    for (const inp of contract.inputs) {
+      if (!inp.type || inp.type.trim() === "") return false;
+      if (inp.required && (!inp.name || inp.name.trim() === "")) return false;
+    }
+    // All outputs must have non-empty types
+    for (const out of contract.outputs) {
+      if (!out.type || out.type.trim() === "") return false;
+    }
+    // Preconditions required when inputs exist
+    if (contract.preconditions.length === 0 && contract.inputs.length > 0) return false;
+    // Postconditions required when outputs exist
+    if (contract.postconditions.length === 0 && contract.outputs.length > 0) return false;
+    return true;
+  }
 
   private checkReplacement(contract: SkillContract, existing: SkillContract[]): boolean {
     for (const ec of existing) {
