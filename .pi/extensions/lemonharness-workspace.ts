@@ -1200,7 +1200,10 @@ export let sessionPromptDescription = "";
 
 // Git commit tracking for auto-reflection
 let lastKnownCommitHash: string | null = null;
-let reflectionTriggeredForCommit = false;
+
+// Periodic task counters for turn_end automation
+let autoReflectTurnCounter = 0;
+let lastDistillEventCount = 0;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Extension Export
@@ -1212,7 +1215,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     // Capture initial git HEAD for commit detection
     try { lastKnownCommitHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim(); } catch { lastKnownCommitHash = null; }
-    reflectionTriggeredForCommit = false;
+    autoReflectTurnCounter = 0;
+    lastDistillEventCount = 0;
 
     const settings = readLemonHarnessSettings();
     workspaceManager.initialize(ctx.cwd, settings.workspace);
@@ -1383,6 +1387,31 @@ export default function (pi: ExtensionAPI) {
         trail.replace(/\n/g, " | "),
       );
       ctx.ui.setStatus("lemonharness-checkpoint", `📍 Checkpoint: ${cp.phase} (DA: ${(cp.decisionAdvantage * 100).toFixed(0)}%)`);
+
+      // v3: Extract heuristics from recent errors on phase transition
+      try {
+        const mod = await import("./lemonharness-subsystems");
+        const wsDir = workspaceManager.getWorkspaceDir();
+        const hm = new mod.HeuristicManager(wsDir);
+        await hm.init();
+        const recentErrors = executionLogger.getExecutionTrail().filter((t: any) => t.isError).slice(-6);
+        const extracted: string[] = [];
+        for (const t of recentErrors) {
+          if (t.toolName) {
+            const h = hm.extractHeuristic(
+              "failure", `${t.toolName} failed`,
+              JSON.stringify(t.args || ""), "general",
+            );
+            if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
+          }
+        }
+        if (extracted.length > 0) {
+          ctx.ui.notify(
+            `🧪 Phase heuristics (${previousPhase} → ${currentPhase.phase}):\n${extracted.join("\n")}`,
+            "info",
+          );
+        }
+      } catch { /* subsystems not available */ }
 
       // Auto-generate session summary on P4 (Reserve) entry
       if (currentPhase.phase === "reserve" && previousPhase !== "reserve") {
@@ -1575,61 +1604,107 @@ export default function (pi: ExtensionAPI) {
           } catch { /* heal not available */ }
         })();
       }
+
+      // ── Periodic Auto-Reflection ───────────────────────────────
+      // Extract heuristics periodically (every 5 turns) + on error thresholds
+      autoReflectTurnCounter++;
+      const consecErrors = executionLogger.getConsecutiveErrors();
+      if (autoReflectTurnCounter % 5 === 0 || consecErrors >= 3) {
+        const trail = executionLogger.getExecutionTrail();
+        const recentErrors = trail.filter(t => t.isError).slice(-8);
+        if (recentErrors.length > 0) {
+          (async () => {
+            try {
+              const mod = await import("./lemonharness-subsystems");
+              const wsDir = workspaceManager.getWorkspaceDir();
+              const hm = new mod.HeuristicManager(wsDir);
+              await hm.init();
+              const extracted: string[] = [];
+              for (const t of recentErrors) {
+                if (t.toolName) {
+                  const h = hm.extractHeuristic(
+                    "failure", `${t.toolName} failed`,
+                    JSON.stringify(t.args || ""), "general"
+                  );
+                  if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
+                }
+              }
+              if (extracted.length > 0) {
+                const reason = consecErrors >= 3 ? `${consecErrors} consecutive errors` : `periodic check (turn ${autoReflectTurnCounter})`;
+                ctx.ui.notify(
+                  `🧪 Auto-reflect: ${reason}\n${extracted.join("\n")}\n\n${extracted.length} heuristic(s) saved. Use /lemonharness:heuristics to view all.`,
+                  "info",
+                );
+              }
+            } catch { /* subsystems not available */ }
+          })();
+        }
+      }
+
+      // ── Auto-Distill on Event Threshold ────────────────────────
+      // Run distillation when memory event count crosses multiples of 30
+      try {
+        const eventsFile = join(workspaceManager.getWorkspaceDir(), "memory", "events.jsonl");
+        const countStr = execSync(`wc -l < "${eventsFile}" 2>/dev/null || echo 0`, { stdio: "pipe" }).toString().trim();
+        const count = parseInt(countStr, 10) || 0;
+        if (count >= 30 && count - lastDistillEventCount >= 30) {
+          lastDistillEventCount = count;
+          ctx.ui.notify(`🧠 ${count} memory events accumulated — run workspace_memory_distill to extract patterns`, "info");
+        }
+      } catch { /* memory file not accessible */ }
     }
 
     // ── Auto-Reflection on Commit ────────────────────────────────
     // Detect new git commits and auto-trigger improvement reflection
-    if (!reflectionTriggeredForCommit) {
-      try {
-        const currentHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
-        if (lastKnownCommitHash !== null && currentHash !== lastKnownCommitHash) {
-          reflectionTriggeredForCommit = true;
-          lastKnownCommitHash = currentHash;
+    try {
+      const currentHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
+      if (lastKnownCommitHash !== null && currentHash !== lastKnownCommitHash) {
+        lastKnownCommitHash = currentHash;
 
-          // Build reflection summary from recent trail
-          const trail = executionLogger.getExecutionTrail();
-          const recentTurns = trail.slice(-6);
-          const errors = trail.filter(t => t.isError).length;
-          const lines = [
-            "📝 Post-Commit Reflection (auto-triggered)",
-            "──────────────────────────────────────────",
-            "", `Commit detected: ${currentHash.slice(0, 7)}`,
-            "", "Take a moment to reflect:",
-            "", "1️⃣  What did I just accomplish?",
-            "2️⃣  What worked well? → Record as solution/pattern",
-            "3️⃣  What didn't work? → Record as failure with root cause",
-            "4️⃣  What should I do differently next time? → Record as insight",
-            "", `📊 Session: ${trail.length} tool calls, ${errors} errors`,
-            "", "Use `workspace_memory_record` to save lessons.",
-            'Use `workspace_memory_search query="self-improvement"` to find past lessons.',
-          ];
+        // Build reflection summary from recent trail
+        const trail = executionLogger.getExecutionTrail();
+        const recentTurns = trail.slice(-10);
+        const errors = trail.filter(t => t.isError).length;
+        const lines = [
+          "📝 Post-Commit Reflection (auto-triggered)",
+          "──────────────────────────────────────────",
+          "", `Commit detected: ${currentHash.slice(0, 7)}`,
+          "", "Take a moment to reflect:",
+          "", "1️⃣  What did I just accomplish?",
+          "2️⃣  What worked well? → Record as solution/pattern",
+          "3️⃣  What didn't work? → Record as failure with root cause",
+          "4️⃣  What should I do differently next time? → Record as insight",
+          "", `📊 Session: ${trail.length} tool calls, ${errors} errors`,
+          "", "Use `workspace_memory_record` to save lessons.",
+          'Use `workspace_memory_search query="self-improvement"` to find past lessons.',
+        ];
 
-          // Try ERL heuristic extraction
-          try {
-            const mod = await import("./lemonharness-subsystems");
-            const workspaceDir2 = workspaceManager.getWorkspaceDir();
-            const hm = new mod.HeuristicManager(workspaceDir2);
-            await hm.init();
-            const extracted: string[] = [];
-            for (const t of recentTurns) {
-              if (t.isError && t.toolName) {
-                const h = hm.extractHeuristic(
-                  "failure", `${t.toolName} failed`,
-                  JSON.stringify(t.args || ""), "general"
-                );
-                if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
-              }
+        // Try ERL heuristic extraction from recent errors
+        try {
+          const mod = await import("./lemonharness-subsystems");
+          const workspaceDir2 = workspaceManager.getWorkspaceDir();
+          const hm = new mod.HeuristicManager(workspaceDir2);
+          await hm.init();
+          const extracted: string[] = [];
+          for (const t of recentTurns) {
+            if (t.isError && t.toolName) {
+              const h = hm.extractHeuristic(
+                "failure", `${t.toolName} failed`,
+                JSON.stringify(t.args || ""), "general"
+              );
+              if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
             }
-            if (extracted.length > 0) {
-              lines.push("", "🧪 Extracted Heuristics (ERL):");
-              lines.push(...extracted);
-            }
-          } catch { /* subsystems not available */ }
+          }
+          if (extracted.length > 0) {
+            lines.push("", "🧪 Extracted Heuristics (ERL):");
+            lines.push(...extracted);
+            lines.push("", `${extracted.length} heuristic(s) saved. Use /lemonharness:heuristics to view all.`);
+          }
+        } catch { /* subsystems not available */ }
 
-          ctx.ui.notify(lines.join("\n"), "info");
-        }
-      } catch { /* not a git repo or git not available */ }
-    }
+        ctx.ui.notify(lines.join("\n"), "info");
+      }
+    } catch { /* not a git repo or git not available */ }
 
     // ── Context Budget Auto-Check ────────────────────────────────
     // Check threshold warnings on every turn end
