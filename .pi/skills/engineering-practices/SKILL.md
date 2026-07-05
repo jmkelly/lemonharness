@@ -218,6 +218,33 @@ threshold tables, and quality gate configuration.
 
 ---
 
+## Rule 12: Commit Hygiene — One Logical Change Per Commit
+
+**Every commit should be a single, coherent, atomic change.**
+
+- Group files by logical concern, not by chronology. A commit called
+  "Add search feature" should include all the files for that feature,
+  not a grab-bag of unrelated edits.
+- Write descriptive commit messages. The subject line should complete
+  the sentence "This commit will..." (e.g., "Add web search tool with
+  arXiv and Semantic Scholar support").
+- Keep commits small enough to review in one pass. If a commit touches
+  10+ unrelated files, it should be split.
+- Separate mechanical changes (refactoring, renames, formatting) from
+  behavioral changes (new features, bug fixes) into different commits.
+- Before creating a commit, ask: *"Would a reviewer understand what
+  changed and why from the message alone?"* If not, improve the message
+  or split the commit.
+
+**Proactive check:** When starting work that spans multiple independent
+concerns, plan the commit boundaries first. Don't wait for someone to
+ask "can you split this up?" — anticipate it.
+
+**Anti-pattern:** ⚠ The "WIP" or "misc changes" commit. If you can't
+summarize what changed in one short sentence, the commit is too large.
+
+---
+
 ## Usage
 
 This skill is automatically loaded as a base skill for every task (alongside
@@ -254,6 +281,7 @@ POSTCONDITIONS:
   - No file exceeds 400 lines
   - All tests pass before task completion
   - Dead code is removed
+  - Commits are atomic: one logical change per commit with descriptive messages
 
 ERROR_HANDLING:
   - If complexity exceeds 10 -> refactor before proceeding
