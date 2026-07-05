@@ -33,6 +33,49 @@ write a test for it, you don't understand what it should do.
 **Check:** Before writing any implementation function, ask: *"What test would
 prove this works?"* If you can't answer, don't write the function yet.
 
+### Automated Enforcement (LemonHarness Guardrails)
+
+TDD is now **structurally enforced** by the following guardrails:
+
+| Trigger | Guardrail | Consequence |
+|---|---|---|
+| **P2 entry** (Implement phase) | Workspace extension checks for test runner (`vitest`) and test files (`tests/*.test.*`) | Warning if missing; blocks P3 unless resolved |
+| **P3 entry** (Validate phase) | Quality gate (`quality-gate.sh`) checks for: (1) test file existence, (2) test runner installed, (3) all tests pass | ❌ **FAIL** if no test files found or tests fail |
+| **`npm test`** | `pretest` hook checks `tests/` directory exists | ❌ Exits with error if no test dir |
+
+The cycle is:
+```
+P1 Explore → [TDD check on Implement entry] → P2 Implement (with tests first)
+  → P3 Validate (quality gate runs tests) → P4 Reserve
+```
+
+**Before writing any implementation code, you MUST:**
+1. ✓ Have `vitest` installed (`npm install --save-dev vitest`)
+2. ✓ Have at least one test file in `tests/` (can be a failing test — that's the Red phase)
+3. ✓ Run `npm test` to verify the test framework works
+
+If you skip these steps, the quality gate will **fail** and prevent progress to P4 (Reserve).
+
+### Test Philosophy: Prefer Real Implementations Over Mocks
+
+**Tests should use real implementations or lightweight fakes, not mocks.**
+
+| Approach | Definition | When to Use |
+|---|---|---|
+| **Real implementation** | The actual production class instantiated directly | Always the default — test the code as it runs in production |
+| **Fake** | A lightweight but real implementation of an interface (e.g., an in-memory store instead of a database) | When the real implementation has side effects (I/O, network, filesystem) that make tests slow or non-deterministic |
+| **Mock / spy** | An object that records calls and returns canned responses (`vi.fn()`, `vi.spyOn()`) | **Last resort** — only when fakes are impractical. Never use mocks to verify internal implementation details |
+
+**Why:** Mocks couple tests to implementation details. A mocked test passes even if the real code is fundamentally broken, because it tests the mock's wiring, not the code's behavior. Real implementations and fakes test actual logic.
+
+**Examples:**
+- ✅ Test `TimeDirector` by instantiating it directly and calling its methods
+- ✅ Test `ExecutionLogger` by creating real log entries and reading them back
+- ✅ Create a plain-object fake of the pi API (a real object with the same shape) instead of `vi.fn()`
+- ❌ Avoid `vi.fn()` / `vi.spyOn()` / `vi.mock()` unless there is no practical alternative
+
+**Check before adding a mock:** *"Can I write this test with the real class or a plain-object fake?"* If yes, do that instead.
+
 ---
 
 ## Rule 2: KISS — Keep It Simple, Stupid

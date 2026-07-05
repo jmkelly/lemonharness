@@ -28,7 +28,7 @@ import {
   stat as fsStat,
   writeFile,
 } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -1429,6 +1429,40 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(confLines.join("\n"), flagged.length > 0 ? "warning" : "success");
         } else {
           ctx.ui.notify("ℹ No confidence scores recorded this session.", "info");
+        }
+      }
+
+      // Pre-implementation guardrail: check test infrastructure on P2 (Implement) entry
+      if (currentPhase.phase === "implement" && previousPhase === "explore") {
+        const projectRoot = workspaceManager.getProjectRoot();
+        const hasTestDir = existsSync(join(projectRoot, "tests"));
+        const hasTestRunner = existsSync(join(projectRoot, "node_modules", ".bin", "vitest")) ||
+          existsSync(join(projectRoot, "node_modules", ".bin", "jest"));
+        const hasTestFiles = hasTestDir && (() => {
+          try {
+            const files = readdirSync(join(projectRoot, "tests"));
+            return files.some(f => f.includes(".test.") || f.includes(".spec."));
+          } catch { return false; }
+        })();
+
+        if (!hasTestRunner) {
+          ctx.ui.notify(
+            "🧪 TDD GUARDRAIL: No test runner found. Install vitest before implementing.\n" +
+            "Run: npm install --save-dev vitest\n" +
+            "TDD requires writing tests first (Red → Green → Refactor).",
+            "warning"
+          );
+        }
+        if (!hasTestFiles) {
+          ctx.ui.notify(
+            "🧪 TDD GUARDRAIL: No test files found in tests/.\n" +
+            "Write a failing test first before implementing (Red phase of Red→Green→Refactor).\n" +
+            "See engineering-practices skill Rule 1 for details.",
+            "warning"
+          );
+        }
+        if (hasTestRunner && hasTestFiles) {
+          ctx.ui.notify("🧪 TDD check passed: test infrastructure and test files present", "success");
         }
       }
 

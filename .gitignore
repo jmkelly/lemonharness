@@ -15,6 +15,7 @@ __pycache__/
 .lemonharness/lemonharness-validation-report.md
 .lemonharness/heuristics.json
 .lemonharness/quality-specs.json
+.lemonharness/session-summary.md
 .lemonharness/snapshots/
 .lemonharness/summaries/
 .lemonharness/delegates/*/summary.txt

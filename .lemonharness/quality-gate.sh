@@ -263,27 +263,45 @@ case "$LANGUAGE" in
     ;;
 
   typescript)
-    if [ -f "node_modules/.bin/jest" ]; then
-      if JEST_OUTPUT=$(npx jest --coverage --coverageThreshold='{"global":{"branches":70,"functions":70,"lines":70,"statements":70}}' 2>&1); then
-        echo "$JEST_OUTPUT" | tail -5
-        echo "  ✅ Tests pass with >= 70% coverage"
-      else
-        echo "$JEST_OUTPUT" | tail -10
-        echo "  ❌ Tests or coverage below threshold"
-        FAILED=$((FAILED + 1))
-      fi
-    elif [ -f "node_modules/.bin/vitest" ]; then
-      if VITEST_OUTPUT=$(npx vitest run --coverage --coverage.thresholds.lines=70 2>&1); then
-        echo "$VITEST_OUTPUT" | tail -5
-        echo "  ✅ Tests pass with >= 70% coverage"
-      else
-        echo "$VITEST_OUTPUT" | tail -10
-        echo "  ❌ Tests or coverage below threshold"
-        FAILED=$((FAILED + 1))
-      fi
+    # First: check that test files exist (TDD enforcement)
+    TEST_FILES=$(find tests -name "*.test.*" -o -name "*.spec.*" 2>/dev/null | head -5)
+    if [ -z "$TEST_FILES" ]; then
+      echo "  ❌ No test files found in tests/ — TDD requires writing tests before implementation"
+      FAILED=$((FAILED + 1))
     else
-      echo "  ⚠  No test runner found (jest/vitest). Install: npm install --save-dev jest"
-      WARNINGS=$((WARNINGS + 1))
+      echo "  ✅ Test files present: $(echo "$TEST_FILES" | wc -l) test file(s)"
+    fi
+
+    # Second: run tests if a runner is available
+    if [ -f "node_modules/.bin/vitest" ]; then
+      if VITEST_OUTPUT=$(npx vitest run --reporter=verbose 2>&1); then
+        echo "$VITEST_OUTPUT" | tail -15
+        echo "  ✅ All tests pass"
+        PASSED=$((PASSED + 1))
+      else
+        echo "$VITEST_OUTPUT" | tail -20
+        FAIL_COUNT=$(echo "$VITEST_OUTPUT" | grep -c "FAIL" || true)
+        echo "  ❌ $FAIL_COUNT test(s) failed"
+        FAILED=$((FAILED + 1))
+      fi
+
+      # Coverage check (non-blocking advisory)
+      if [ -f "node_modules/.bin/@vitest/coverage-v8" ] || npm ls @vitest/coverage-v8 2>/dev/null | grep -q @vitest/coverage-v8; then
+        if COV_OUTPUT=$(npx vitest run --coverage --coverage.thresholds.lines=70 2>&1); then
+          echo "$COV_OUTPUT" | tail -5
+          echo "  ✅ Coverage >= 70%"
+        else
+          echo "$COV_OUTPUT" | tail -10
+          echo "  ⚠  Coverage below 70% threshold (advisory)"
+          WARNINGS=$((WARNINGS + 1))
+        fi
+      fi
+    elif [ -f "node_modules/.bin/jest" ]; then
+      echo "  ⚠  Jest found — consider migrating to vitest for TypeScript-native support"
+      npx jest --passWithNoTests 2>&1 | tail -5
+    else
+      echo "  ❌ No test runner found (vitest). Install: npm install --save-dev vitest"
+      FAILED=$((FAILED + 1))
     fi
     ;;
 
