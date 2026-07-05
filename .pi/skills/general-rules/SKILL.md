@@ -26,6 +26,16 @@ description: >
    Prefer project-local installations (e.g., `npm install --save-dev`,
    `pip install -r requirements.txt`).
 
+7. **Full correction closure**: When the user corrects you, fix both the
+   *task* and your *process* in the same turn. The correction is not
+   complete until:
+   - ✓ The stated issue is resolved
+   - ✓ The root cause is identified and recorded
+   - ✓ The tooling (skill/rule/guardrail) is updated to prevent recurrence
+   - ✓ The fix is verified
+   Do not proceed to a new action without closing all four items. A
+   correction that only fixes the task but not the process will repeat.
+
 ## Usage
 
 These general rules apply to every task. They are automatically
@@ -62,9 +72,12 @@ POSTCONDITIONS:
   - Train/val/test data never leaks between splits
   - All artifacts are within workspace boundary
   - Dependencies are recorded
+  - User corrections produce both task fix and process fix in same turn
 
 ERROR_HANDLING:
   - If workspace boundary violated -> block the write
   - If seed not set -> warn before proceeding
   - If dependency not recorded -> log warning
+  - If user correction only addressed the task, not the process ->
+    re-open the loop and fix the root cause
 ```

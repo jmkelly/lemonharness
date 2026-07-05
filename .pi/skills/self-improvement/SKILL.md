@@ -258,20 +258,48 @@ This summarizes what was learned and what processes changed during the task.
 
 - A user correction is worth 100 automated error messages — it reveals a gap
   in your understanding, not just a code bug.
-- When the user corrects you:
-  1. **Acknowledge** — Confirm you understand the correction.
-  2. **Fix immediately** — Correct the mistake at hand.
-  3. **Record** — Log as `feedback` with `outcome="failure"` and
-     `tags="user-correction,self-improvement"`.
-  4. **Root-cause** — Analyze: *"Why did I make this error? What in my
-     process or knowledge caused it?"*
-  5. **Change the process** — Fix the root cause, not just the symptom.
-  6. **Verify** — Confirm the fix works and the lesson is recorded.
+- A correction comes in many forms: a direct "no", a request for a different
+  approach, or a question like "did you learn from this?". Recognize all of
+  them as corrections.
 
-**The "never make the same user correction twice" rule:**
+### The Correction Loop (must complete before next action)
+
+When the user corrects you, **fix both the task AND the process** in one turn.
+Do not wait for a follow-up prompt. Use the following sequence atomically:
+
+1. **Acknowledge** — Confirm you understand the correction.
+
+2. **Fix immediately** — Correct the mistake at hand (the task-level fix).
+
+3. **Record the correction as memory** — Log as `feedback` with
+   `outcome="failure"` and `tags="user-correction,self-improvement"`.
+
+4. **Root-cause** — Analyze: *"Why did I make this error? What in my
+   process or knowledge caused it?"* Ask whether the cause was:
+   - Missing rule? → Add or strengthen a skill
+   - Existing rule not followed? → Make the rule more explicit or enforceable
+   - Knowledge gap? → Record as a knowledge entry
+   - Proactive failure? → Add a pre-action check
+
+5. **Change the process** — Fix the root cause, not just the symptom.
+   Update the relevant skill file, add a guardrail, or record a pattern.
+
+6. **Verify** — Confirm the fix works and the lesson is recorded.
+
+**Mandatory self-check before your next turn:**
+> Did I complete all 6 steps? If not, finish the loop before acting.
+> Did I fix only the task but not my process? If so, I haven't learned.
+
+### The "never make the same user correction twice" rule
+
 If a user has to correct you on the same issue twice, you have failed to
 learn. When this happens, create a specific guardrail — a check, a test,
 or a prompt-level reminder — to prevent a third occurrence.
+
+**If you get corrected on the same pattern a third time:** the existing
+rule or guardrail is insufficient. Escalate by adding a cross-cutting
+check to `general-rules` (which applies to every task) so it cannot
+be ignored.
 
 ---
 
@@ -432,9 +460,13 @@ POSTCONDITIONS:
   - Patterns detected 2+ times are promoted to text memory
   - Patterns detected 3+ times are escalated to guardrails
   - Diminishing returns evaluated before further refinement
+  - Every user correction produces both task fix and process fix
+    in the same turn before proceeding
 
 ERROR_HANDLING:
   - If memory system unavailable -> cache improvements locally
   - If same error occurs 3 times -> create automation guardrail
   - If user correction repeats -> escalate to permanent process change
+  - If correction loop incomplete (task fixed but process not) ->
+    block next action until root cause identified and tooling updated
 ```
