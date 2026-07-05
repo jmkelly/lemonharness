@@ -1555,6 +1555,26 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`⚠️  [Health Check] ${alert.name}: ${alert.message}`, "warning");
         }
       }
+
+      // Auto-heal on regression (3+ consecutive errors of same type)
+      if (regressionMsg !== null) {
+        ctx.ui.notify(`🩺 Regression detected: ${regressionMsg} — attempting auto-heal...`, "warning");
+        // Fire-and-forget heal attempt via subsystems
+        (async () => {
+          try {
+            const mod = await import("./lemonharness-subsystems");
+            const wsDir = workspaceManager.getWorkspaceDir();
+            const healer = new mod.ValidationAutoHealer(wsDir);
+            await healer.init();
+            const result = await healer.healLastFailure();
+            if (result?.healed) {
+              ctx.ui.notify(`🩺 Auto-heal succeeded${result.retryCommand ? ` — re-run: ${result.retryCommand}` : ""}`, "success");
+            } else if (result?.escalation) {
+              ctx.ui.notify(`🚨 Auto-heal escalated after ${result.attempt} attempts — review required`, "error");
+            }
+          } catch { /* heal not available */ }
+        })();
+      }
     }
 
     // ── Auto-Reflection on Commit ────────────────────────────────
@@ -1651,11 +1671,36 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Intercept bash tool — detect state changes
+    // Intercept bash tool — detect state changes + auto-snapshot
     if (isToolCallEventType("bash", event)) {
       const command = event.input.command as string;
       const stateChange = detectBashStateChange(command);
-      if (stateChange) workspaceManager.trackProcess(command, 0);
+      if (stateChange) {
+        workspaceManager.trackProcess(command, 0);
+
+        // Auto-snapshot before destructive operations
+        if (/npm\s+install|npm\s+uninstall|rm\s+-rf|mv\s+|cp\s+|git\s+reset|git\s+clean|git\s+checkout/.test(command)) {
+          (async () => {
+            try {
+              const state = workspaceManager.getWorkspaceState();
+              const snapshotId = `auto-${Date.now()}`;
+              const changedFiles: SnapshotFileChange[] = [];
+              for (const file of state.files) {
+                const absPath = resolve(ctx.cwd, file.path);
+                try {
+                  const { readFile } = await import("node:fs/promises");
+                  const content = await readFile(absPath, "utf-8");
+                  changedFiles.push({ path: file.path, oldContent: null, newContent: content, action: "modify" });
+                } catch { /* file gone */ }
+              }
+              if (changedFiles.length > 0) {
+                const meta = await snapshotManager.createSnapshot(snapshotId, `Auto-snapshot before: ${command.slice(0, 60)}`, changedFiles);
+                ctx.ui.notify(`📸 Auto-snapshot created: ${snapshotId} (${meta.files.length} files)`, "info");
+              }
+            } catch { /* snapshot not available */ }
+          })();
+        }
+      }
     }
   });
 
