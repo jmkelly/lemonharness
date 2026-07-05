@@ -1,0 +1,100 @@
+{
+  "lemonharness": {
+    "enabled": true,
+    "workspace": {
+      "dir": ".lemonharness",
+      "allowedPaths": [
+        "/tmp",
+        "/home/james/.cache"
+      ],
+      "blockOutsideWrites": true
+    },
+    "timeAwareness": {
+      "enabled": true,
+      "defaultBudgetMs": 900000,
+      "exploreRatio": 0.3,
+      "implementRatio": 0.6,
+      "validateRatio": 0.9,
+      "graceBand": 0.05
+    },
+    "ruleKnowledge": {
+      "enabled": true,
+      "autoDetectDomain": true
+    },
+    "executionLogging": {
+      "enabled": true,
+      "maxTrailEntries": 10,
+      "injectTrailInterval": 3
+    },
+    "structuredTools": {
+      "enabled": true,
+      "interceptBuiltins": true
+    },
+    "memory": {
+      "enabled": true,
+      "autoRecord": true,
+      "distillIntervalMs": 300000,
+      "minConfidenceForRetrieval": 0.3,
+      "minRepeatsForTextPromotion": 2,
+      "minRepeatsForCodePromotion": 3,
+      "maxCodeTools": 20,
+      "decayHalfLifeDays": 30,
+      "retrievalMethod": "hybrid"
+    },
+    "selfImprovement": {
+      "enabled": true,
+      "autoReflectOnErrors": true,
+      "diminishingReturnsThreshold": 0.05,
+      "maxImprovementsPerProcess": 3,
+      "autoRecordCorrections": true
+    },
+    "qualityGate": {
+      "enabled": true,
+      "autoTriggerOnP3Entry": true,
+      "blockOnFailure": false,
+      "scriptPath": ".lemonharness/quality-gate.sh"
+    },
+    "dynamicBudget": {
+      "enabled": true,
+      "graceBandExtensionPercent": 0.2,
+      "validatePhaseMinTimeMs": 30000
+    },
+    "harnessMetrics": {
+      "enabled": true
+    },
+    "phaseCheckpoints": {
+      "enabled": true,
+      "decayFactor": 0.3
+    },
+    "safetySpecs": {
+      "enabled": true,
+      "minConfidenceForPrompt": 0.4,
+      "maxSpecsInPrompt": 3
+    },
+    "heuristics": {
+      "enabled": true,
+      "maxHeuristicsPerPrompt": 5,
+      "minConfidenceForInjection": 0.3,
+      "reinjectionInterval": 3,
+      "decayHalfLifeDays": 60
+    },
+    "toolPrivilege": {
+      "enabled": true,
+      "suggestAlternatives": true,
+      "escalationAlertThreshold": 0.3
+    },
+    "skills": {
+      "pseudocodeEnabled": true,
+      "verifyOnLoad": true
+    },
+    "keyMoments": {
+      "enabled": true,
+      "scanIntervalTurns": 10
+    },
+    "verificationRefinement": {
+      "enabled": true,
+      "passBonus": 0.1,
+      "failPenalty": 0.15
+    }
+  }
+}
