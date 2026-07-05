@@ -1,6 +1,9 @@
 node_modules/
 .eslintcache
 *.log
+__pycache__/
+*.pyc
+*.pyo
 
 # LemonHarness runtime data (auto-generated per session)
 .lemonharness/events.jsonl
