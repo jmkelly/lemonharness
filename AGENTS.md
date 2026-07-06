@@ -55,6 +55,7 @@ optimizations for pi:
 | `.pi/extensions/lemonharness-subsystems.ts` | v3 capability modules (all 6 new classes) |
 | `.pi/extensions/lemonharness-integration.ts` | Integration adapter for v3 subsystems |
 | `.pi/extensions/lemonharness-search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
+
 | `.lemonharness/search.py` | Python search backend (DDGS, arXiv API, Semantic Scholar API) |
 | `.pi/skills/` | Domain-specific rule knowledge (8 domains) |
 | `.pi/settings.json` | Project settings with full LemonHarness config |
@@ -82,6 +83,17 @@ optimizations for pi:
 | `/lemonharness:privilege` | Show tool privilege escalation statistics (v3) |
 | `/lemonharness:key-moments` | Detect and display key moments from memory (v3) |
 | `/lemonharness:correlation` | Show validation-pattern correlation data (v3) |
+| `/lemonharness:context` | Show context budget estimation (v3) |
+| `/lemonharness:confidence` | Show confidence scores and flagged outputs (v3) |
+| `/lemonharness:health` | Show periodic health check status (v3) |
+| `/lemonharness:visualize` | Generate execution visualization (HTML + TUI) |
+| `/lemonharness:snapshot [desc]` | Create a manual workspace snapshot |
+| `/lemonharness:snapshots` | List all available snapshots |
+| `/lemonharness:rollback <id>` | Restore workspace to a snapshot |
+| `/lemonharness:heal [last\|stats\|list\|reset]` | Show/trigger validation auto-healer |
+| `/lemonharness:delegates` | Show status of all spawned delegates |
+| `/lemonharness:delegate <id>` | Show detailed delegate result |
+
 | `/search <query>` | Search web or arXiv from command line |
 | `/search arxiv:<query>` | Search arXiv specifically |
 | `/memory:status` | Show memory stats and recent events |
@@ -107,6 +119,7 @@ optimizations for pi:
 | `workspace_memory_stats` | Show memory statistics |
 | `workspace_memory_list_code` | List crystallized code tools |
 | `workspace_memory_distill` | Force pattern extraction (v3: detects key moments) |
+| `workspace_memory_feedback` | Provide feedback on memory |
 | `workspace_memory_feedback` | Provide feedback on memory |
 | `web_search` | Search web, arXiv, or Semantic Scholar for research |
 

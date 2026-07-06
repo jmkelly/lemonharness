@@ -23,8 +23,8 @@
     },
     "executionLogging": {
       "enabled": true,
-      "maxTrailEntries": 10,
-      "injectTrailInterval": 3
+      "maxTrailEntries": 8,
+      "injectTrailInterval": 5
     },
     "structuredTools": {
       "enabled": true,
@@ -32,12 +32,8 @@
     },
     "memory": {
       "enabled": true,
-      "autoRecord": true,
       "distillIntervalMs": 300000,
-      "minConfidenceForRetrieval": 0.3,
-      "minRepeatsForTextPromotion": 2,
-      "minRepeatsForCodePromotion": 3,
-      "maxCodeTools": 20,
+      "minConfidenceForRetrieval": 0.5,
       "decayHalfLifeDays": 30,
       "retrievalMethod": "hybrid"
     },
@@ -73,10 +69,8 @@
     },
     "heuristics": {
       "enabled": true,
-      "maxHeuristicsPerPrompt": 5,
-      "minConfidenceForInjection": 0.3,
-      "reinjectionInterval": 3,
-      "decayHalfLifeDays": 60
+      "maxHeuristicsPerPrompt": 3,
+      "minConfidenceForInjection": 0.5
     },
     "toolPrivilege": {
       "enabled": true,
@@ -86,16 +80,11 @@
     "escalationAutoRetry": true,
     "skills": {
       "pseudocodeEnabled": true,
-      "verifyOnLoad": true
+      "verifyOnLoad": false
     },
     "keyMoments": {
       "enabled": true,
       "scanIntervalTurns": 10
-    },
-    "verificationRefinement": {
-      "enabled": true,
-      "passBonus": 0.1,
-      "failPenalty": 0.15
     },
     "visualization": {
       "enabled": true
@@ -103,7 +92,11 @@
     "contextBudget": {
       "enabled": true,
       "modelContextLimit": 128000,
-      "warnThresholds": [50, 70, 90]
+      "warnThresholds": [
+        50,
+        70,
+        90
+      ]
     }
   }
 }
