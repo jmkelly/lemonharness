@@ -7,7 +7,7 @@
   "author": "James",
   "repository": {
     "type": "git",
-    "url": "https://github.com/james/lemonharness.git"
+    "url": "https://github.com/jmkelly/lemonharness.git"
   },
   "files": [
     ".pi/extensions",
