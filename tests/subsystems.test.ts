@@ -168,7 +168,7 @@ describe("HealthChecker", () => {
   it("should register checks and get status (runChecks returns void)", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const checker = new mod.HealthChecker();
-    checker.registerCheck("always_pass", 1, () => ({ healthy: true, message: "OK" }));
+    checker.registerCheck("always_pass", 1, () => ({ passed: true, severity: "green", message: "OK" }));
     // runChecks returns void — check via getStatus()
     checker.runChecks({ currentPhase: "explore", totalErrors: 0 });
     const status = checker.getStatus();
@@ -178,8 +178,8 @@ describe("HealthChecker", () => {
   it("should detect unhealthy states via alerts", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const checker = new mod.HealthChecker();
-    checker.registerCheck("fail_check", 1, () => ({ healthy: false, message: "FAILED" }));
-    checker.registerCheck("pass_check", 1, () => ({ healthy: true, message: "OK" }));
+    checker.registerCheck("fail_check", 1, () => ({ passed: false, severity: "red", message: "FAILED" }));
+    checker.registerCheck("pass_check", 1, () => ({ passed: true, severity: "green", message: "OK" }));
     checker.runChecks({ currentPhase: "implement", totalErrors: 1 });
     const alerts = checker.getAlerts();
     expect(alerts).toBeDefined();
