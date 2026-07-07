@@ -34,7 +34,7 @@ import type {
   CommitAwareMemory,
   ValidationAutoHealer,
   AutoHealResult,
-} from "./lemonharness-subsystems";
+} from "./subsystems";
 
 // We use dynamic imports because the subsystems module is a separate file
 let dependencyGraph: DependencyGraph | null = null;
@@ -76,11 +76,11 @@ let delegateCounter = 0;
 
 // Import helpers from subsystems at runtime
 async function getSubsystems() {
-  const mod = await import("./lemonharness-subsystems");
+  const mod = await import("./subsystems");
   return mod;
 }
 
-export default function (pi: ExtensionAPI) {
+export function setupIntegration(pi: ExtensionAPI) {
   // ── Session Events ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
@@ -196,9 +196,23 @@ export default function (pi: ExtensionAPI) {
       metricsRecorder.recordConstraintViolation();
     }
     // Track trace completeness — every tool call with input/output is traceable
-    metricsRecorder.recordTraceCompleteness(true);
-    // Track justification rate — tool calls preceded by reasoning (approximated)
-    metricsRecorder.recordJustifiedCall(true);
+    // Track trace completeness — only truly complete if tool returned with output
+    // Error calls may have incomplete provenance (no output captured)
+    metricsRecorder.recordTraceCompleteness(!event.isError);
+
+    // Track justification rate — workspace tools are justified, raw tools less so
+    const justified = event.toolName !== "write" && event.toolName !== "edit" && event.toolName !== "bash";
+    metricsRecorder.recordJustifiedCall(justified);
+
+    // Track recovery efficiency — time from error to successful operation
+    if (event.isError) {
+      lastErrorTimestamp = Date.now();
+    } else if (!event.isError && lastErrorTimestamp !== null) {
+      const recoveryTimeMs = Date.now() - lastErrorTimestamp;
+      metricsRecorder.recordRecoveryTime(recoveryTimeMs);
+      lastErrorTimestamp = null; // Reset after recording
+    }
+
 
     // Track workspace_write operations
     if (event.toolName === "workspace_write") {
@@ -223,68 +237,22 @@ export default function (pi: ExtensionAPI) {
       const passed = !event.isError;
       metricsRecorder.recordValidation(passed);
       const cmd = (event.input as any)?.command;
+
+      // Track regression detection: if a command previously passed but now fails
       if (cmd) {
-        const cmdId = dependencyGraph.registerCommand(cmd as string);
-        dependencyGraph.recordValidation(cmdId, passed, event.isError ? 1 : 0);
-
-        // v3: VerificationRefinement — correlate validation with patterns
-        if (verificationRefinement) {
-          const patterns = metricsRecorder.getHarnessMetrics();
-          const relatedPatterns: string[] = [];
-          if (patterns.constraintViolations === 0) relatedPatterns.push("Respect workspace boundaries");
-          if (patterns.traceCompleteness > 0.8) relatedPatterns.push("Maintain execution trace");
-          if (patterns.regressionFreeRate > 0.8) relatedPatterns.push("Avoid regressions");
-          if (passed) {
-            verificationRefinement.promoteOnPass(cmd as string, relatedPatterns);
-          } else {
-            const contentStr = Array.isArray(event.content) ? event.content.map(c => 'text' in c ? c.text : '').join('\n') : String(event.content || '');
-            verificationRefinement.demoteOnFail(cmd as string, contentStr, relatedPatterns);
-          }
-        }
-
-        // ── Self-Healing Validation Loop ────────────────────────────
-        // Auto-triage validation failures: attempt fixes, re-run, escalate
-        if (!passed && validationAutoHealer) {
-          const errorOutput = (typeof event.content === "string" ? event.content : "") || "";
-
-          // Attempt auto-heal asynchronously (don't block the event loop)
-          const healResult = await validationAutoHealer.autoHeal(cmd as string, errorOutput);
-
-          if (healResult.escalation) {
-            // After 3 failed attempts, present structured escalation report
-            ctx.ui.notify(
-              `🚨 Validation escalation after ${healResult.attempt} attempts:\n\n${healResult.escalationReport}`,
-              "error",
-            );
-          } else if (healResult.healed && healResult.retryCommand) {
-            // Fix applied successfully — suggest re-running validation
-            ctx.ui.notify(
-              `✅ Auto-healed validation: ${healResult.attemptedFix}\nRe-run validation to confirm.`,
-              "info",
-            );
-          } else if (healResult.attemptedFix) {
-            // Fix attempted but failed — inform user
-            const suggestion = healResult.topSuggestion
-              ? `\n\nSuggestion from past experience: "${healResult.topSuggestion}"`
-              : "";
-            ctx.ui.notify(
-              `⚠ Auto-heal attempt failed: ${healResult.attemptedFix}${suggestion}`,
-              "warning",
-            );
-          } else {
-            // No auto-fix available — present heuristic suggestion if available
-            if (healResult.topSuggestion) {
-              ctx.ui.notify(
-                `🔍 Validation failed. From past experience: "${healResult.topSuggestion}"`,
-                "info",
-              );
-            }
-          }
+        if (passed) {
+          passedValidations.add(cmd);
+        } else if (passedValidations.has(cmd)) {
+          // This command previously passed but now failed — it's a regression
+          metricsRecorder.recordChange(true);
+        } else {
+          // Non-regression failure (first time failing or never passed)
+          metricsRecorder.recordChange(false);
         }
       }
     }
 
-    // ── v3: Escalation Ladder — Track escalation result ────────────
+// ── v3: Escalation Ladder — Track escalation result ────────────
     // Record whether this tool call (if it was a suggested alternative) succeeded or failed
     if (privilegeManager && event.toolName) {
       privilegeManager.recordEscalationResult(event.toolName, !event.isError, "tool_result");
@@ -641,7 +609,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       if (!keyMomentDetector) { ctx.ui.notify("🍋 Key moment detector not initialized", "warning"); return; }
       try {
-        const mod = await import("./lemonharness-subsystems");
+        const mod = await import("./subsystems");
         const detector = new mod.KeyMomentDetector();
         // Try to load memory events for detection
         const memoryDir = join(ctx.cwd, ".lemonharness", "memory");

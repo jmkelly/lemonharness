@@ -10,39 +10,39 @@ import { describe, it, expect } from "vitest";
 // ── TimeDirector tests ──────────────────────────────────────────
 describe("TimeDirector", () => {
   it("should export TimeDirector class from workspace extension", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     expect(mod.TimeDirector).toBeDefined();
     expect(typeof mod.TimeDirector).toBe("function");
   });
 
   it("should create a TimeDirector with default config", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector();
     expect(director.getBudget()).toBe(300_000); // default 5 min
   });
 
   it("should accept custom budget in config", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 600_000 });
     expect(director.getBudget()).toBe(600_000);
   });
 
   it("should extend budget correctly", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 100_000 });
     director.extendBudget(20_000);
     expect(director.getBudget()).toBe(120_000);
   });
 
   it("should set budget correctly", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 100_000 });
     director.setBudget(200_000);
     expect(director.getBudget()).toBe(200_000);
   });
 
   it("should format status without errors", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 300_000 });
     director.start();
     const status = director.formatStatus();
@@ -54,7 +54,7 @@ describe("TimeDirector", () => {
 // ── Phase Checkpoints (v3) ──────────────────────────────────────
 describe("Phase Checkpoints", () => {
   it("should record a checkpoint with decision advantage decay", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 100_000 });
 
     const cp = director.recordPhaseCheckpoint("explore", '{"files":3}', "test trail");
@@ -70,7 +70,7 @@ describe("Phase Checkpoints", () => {
   });
 
   it("should retrieve recorded checkpoints", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 100_000 });
 
     director.recordPhaseCheckpoint("explore", "{}", "");
@@ -83,7 +83,7 @@ describe("Phase Checkpoints", () => {
   });
 
   it("should return decision advantage decay factor", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector({ totalBudgetMs: 100_000 });
 
     // No checkpoints yet
@@ -99,13 +99,13 @@ describe("Phase Checkpoints", () => {
 // ── ExecutionLogger ─────────────────────────────────────────────
 describe("ExecutionLogger", () => {
   it("should export ExecutionLogger class", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     expect(mod.ExecutionLogger).toBeDefined();
     expect(typeof mod.ExecutionLogger).toBe("function");
   });
 
   it("should log a tool call and retrieve the trail", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     logger.logToolCall("test_tool", { arg: "hello" }, { content: "ok", isError: false });
@@ -116,7 +116,7 @@ describe("ExecutionLogger", () => {
   });
 
   it("should track consecutive errors", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     logger.logToolCall("tool1", {}, { content: "ok" });
@@ -135,7 +135,7 @@ describe("ExecutionLogger", () => {
   });
 
   it("should detect regression after 3+ consecutive failures of same tool", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     // Three build failures in a row
@@ -152,7 +152,7 @@ describe("ExecutionLogger", () => {
   });
 
   it("should record confidence scores", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     logger.recordConfidence("test_tool", { arg: 1 }, 4, "high confidence");
@@ -164,7 +164,7 @@ describe("ExecutionLogger", () => {
   });
 
   it("should clamp confidence scores to 1-5 range", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     // Score 0 should become 1
@@ -178,7 +178,7 @@ describe("ExecutionLogger", () => {
   });
 
   it("should flag scores < 3 for review", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-workspace.ts");
+    const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const logger = new mod.ExecutionLogger();
 
     logger.recordConfidence("tool", {}, 2, "low confidence");
@@ -193,7 +193,7 @@ describe("ExecutionLogger", () => {
 // ── v3: Heuristic Injection lives in lemonharness-subsystems.ts ──
 describe("HeuristicManager (v3)", () => {
   it("should export HeuristicManager from subsystems", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-subsystems.ts");
+    const mod = await import("../.pi/extensions/lemonharness/subsystems.ts");
     expect(mod.HeuristicManager).toBeDefined();
     expect(typeof mod.HeuristicManager).toBe("function");
   });

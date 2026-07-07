@@ -26,7 +26,7 @@ import { existsSync } from "node:fs";
 const SEARCH_SCRIPT = join(".lemonharness", "search.py");
 const PYTHON_VENV = "/tmp/search-env/bin/python3";
 
-export default function (pi: ExtensionAPI) {
+export function setupSearch(pi: ExtensionAPI) {
   pi.registerTool({
     name: "web_search",
     label: "Web Search",

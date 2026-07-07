@@ -19,7 +19,7 @@
     "paths": {}
   },
   "include": [
-    ".pi/extensions/**/*.ts",
+    ".pi/extensions/lemonharness/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.mjs"
   ],

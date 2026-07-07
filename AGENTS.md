@@ -50,13 +50,16 @@ optimizations for pi:
 
 | File | Purpose |
 |---|---|
-| `.pi/extensions/lemonharness-workspace.ts` | Main extension (all 5 optimizations + enhanced v2 + v3) |
-| `.pi/extensions/lemonharness-memory.ts` | Memory & Learning extension (dual-representation + TF-IDF + decay + v3 key moments + MemCoder) |
-| `.pi/extensions/lemonharness-subsystems.ts` | v3 capability modules (all 6 new classes) |
-| `.pi/extensions/lemonharness-integration.ts` | Integration adapter for v3 subsystems |
-| `.pi/extensions/lemonharness-search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
+| `.pi/extensions/lemonharness/index.ts` | Main extension entry point (all 5 optimizations + v2 + v3) |
+| `.pi/extensions/lemonharness/workspace.ts` | Workspace extension logic (v3: checkpoints, privilege, SaP) |
+| `.pi/extensions/lemonharness/memory.ts` | Memory & Learning extension (v3: key moments, MemCoder) |
+| `.pi/extensions/lemonharness/subsystems.ts` | v3 capability modules (all 6 new classes) |
+| `.pi/extensions/lemonharness/integration.ts` | Integration adapter for v3 subsystems |
+| `.pi/extensions/lemonharness/search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
+| `.pi/extensions/lemonharness/summary.ts` | Live documentation generator |
+| `.pi/extensions/lemonharness/visualization.ts` | Execution visualization (HTML + TUI) |
 
-| `.pi/lib/` | Shared utilities (not loaded as pi extensions — `lemonharness-shared.ts`) |
+| `.pi/extensions/lemonharness/{workspace-core,memory-core,subsystems-core,shared}.ts` | Core classes and shared utilities |
 | `.lemonharness/search.py` | Python search backend (DDGS, arXiv API, Semantic Scholar API) |
 | `.pi/skills/` | Domain-specific rule knowledge (18 domains) |
 | `.pi/skills/.index.md` | Master skill index with auto-detect keywords and cross-references |
@@ -207,14 +210,14 @@ The `.pi/` directory is structured as follows — follow this when adding new fi
 
 | Directory | Purpose | Convention |
 |-----------|---------|------------|
-| `.pi/extensions/` | pi extension entry points | Every `.ts` file **must** `export default function (pi: ExtensionAPI)` |
-| `.pi/lib/` | Shared utilities imported by extensions | No factory function; just named exports |
+| `.pi/extensions/` | Extension subdirectories | Each subdirectory **must** have an `index.ts` with `export default function` |
+| `.pi/extensions/lemonharness/` | Main extension — all modules, helpers, and `index.ts` entry point |
 | `.pi/skills/` | Domain-specific skill files | Each skill has a `SKILL.md` and optional `references/` |
 | `.pi/settings.json` | Project configuration | Single file, not a directory |
 
-**Critical rule**: Never place shared utility files in `.pi/extensions/`. Pi scans ALL `.ts` files in that directory and tries to load them as extensions. Every file there must export a default factory function. Put shared code in `.pi/lib/` instead.
+**Critical rule**: Every pi extension must be a subdirectory of `.pi/extensions/` with an `index.ts` entry point. No `.ts` files should live directly in `.pi/extensions/`. Shared utility modules go in the extension's own directory alongside `index.ts`.
 
-The quality gate automatically validates this — `bash .lemonharness/quality-gate.sh` will fail if any file in `.pi/extensions/` is missing `export default function`.
+The quality gate automatically validates this — `bash .lemonharness/quality-gate.sh` will fail if any extension directory in `.pi/extensions/` is missing `index.ts` with `export default function`, and if any `.ts` file has syntax errors.
 
 ## Quick Reference
 

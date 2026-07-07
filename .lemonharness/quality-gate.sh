@@ -96,21 +96,60 @@ echo ""
 # ── 2. Extension Factory Check ────────────────────────────────────
 echo "─── 🏭 Extension Factory Check ───"
 EXT_BAD=0
+# Check that all extension directories have index.ts with export default function
 if [ -d ".pi/extensions" ]; then
-  while IFS= read -r -d '' f; do
-    basename_f=$(basename "$f")
-    if ! grep -q "export default function" "$f" 2>/dev/null; then
-      echo "  ❌ $basename_f — missing 'export default function' (not a valid pi extension)"
-      echo "     Move shared utilities to .pi/lib/ and update imports"
+  # Check each subdirectory entry point
+  while IFS= read -r -d '' dir; do
+    index_file="$dir/index.ts"
+    dirname_f=$(basename "$dir")
+    if [ -f "$index_file" ]; then
+      if ! grep -q "export default function" "$index_file" 2>/dev/null; then
+        echo "  ❌ $dirname_f/index.ts — missing 'export default function'"
+        EXT_BAD=$((EXT_BAD + 1))
+      fi
+    else
+      echo "  ❌ $dirname_f/ — no index.ts entry point"
       EXT_BAD=$((EXT_BAD + 1))
     fi
+  done < <(find .pi/extensions -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+  # Check no .ts files exist directly in .pi/extensions/ root
+  while IFS= read -r -d '' f; do
+    echo "  ❌ $(basename "$f") — .ts file in .pi/extensions/ root; move into a subdirectory"
+    EXT_BAD=$((EXT_BAD + 1))
   done < <(find .pi/extensions -maxdepth 1 -type f -name "*.ts" -print0 2>/dev/null)
   if [ "$EXT_BAD" -gt 0 ]; then
-    echo "  ❌ $EXT_BAD file(s) in .pi/extensions/ missing factory export"
+    echo "  ❌ $EXT_BAD extension structure issue(s)"
     FAILED=$((FAILED + EXT_BAD))
   else
-    echo "  ✅ All .pi/extensions/ files export valid factory functions"
+    echo "  ✅ All extension directories have valid index.ts entry points"
   fi
+fi
+
+# ── 2b. Syntax Parse Check ──────────────────────────────────────
+# Standalone parse check that catches syntax errors before tsc.
+# Uses node --check (strips types) and is independent of type errors,
+# so parse failures don't get lost among pre-existing type issues.
+echo "─── ⚡ Syntax Parse Check ───"
+PARSE_BAD=0
+if command -v node &>/dev/null; then
+  while IFS= read -r -d '' f; do
+    basename_f=$(basename "$f")
+    if ! node --check "$f" 2>/dev/null; then
+      PARSE_ERR=$(node --check "$f" 2>&1 | head -3)
+      echo "  ❌ $basename_f — parse error"
+      echo "     $PARSE_ERR"
+      PARSE_BAD=$((PARSE_BAD + 1))
+    fi
+  done < <(find .pi/extensions -maxdepth 3 -type f -name "*.ts" -not -path "*/node_modules/*" -print0 2>/dev/null)
+  if [ "$PARSE_BAD" -gt 0 ]; then
+    echo "  ❌ $PARSE_BAD file(s) with parse errors"
+    FAILED=$((FAILED + PARSE_BAD * 10))  # Heavy weight — parse errors block loading
+  else
+    echo "  ✅ All .ts files pass syntax parse check"
+  fi
+else
+  echo "  ⚠  node not found — skipping parse check"
+  WARNINGS=$((WARNINGS + 1))
 fi
 echo ""
 

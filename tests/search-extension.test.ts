@@ -47,16 +47,16 @@ function createFakePI() {
 
 describe("Search Extension", () => {
   it("should load the extension module and export a default function", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-search.ts");
-    expect(mod.default).toBeDefined();
-    expect(typeof mod.default).toBe("function");
+    const mod = await import("../.pi/extensions/lemonharness/search.ts");
+    expect(mod.setupSearch).toBeDefined();
+    expect(typeof mod.setupSearch).toBe("function");
   });
 
   it("should register a web_search tool with correct contract", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-search.ts");
+    const mod = await import("../.pi/extensions/lemonharness/search.ts");
     const pi = createFakePI();
 
-    mod.default(pi as any);
+    mod.setupSearch(pi as any);
 
     const tools = pi.getRegisteredTools();
     expect(tools.length).toBe(1);
@@ -69,10 +69,10 @@ describe("Search Extension", () => {
   });
 
   it("should register a /search command with correct name", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-search.ts");
+    const mod = await import("../.pi/extensions/lemonharness/search.ts");
     const pi = createFakePI();
 
-    mod.default(pi as any);
+    mod.setupSearch(pi as any);
 
     const cmds = pi.getRegisteredCommands();
     expect(cmds.length).toBe(1);
@@ -83,10 +83,10 @@ describe("Search Extension", () => {
   });
 
   it("should register a tool whose execute function is callable", async () => {
-    const mod = await import("../.pi/extensions/lemonharness-search.ts");
+    const mod = await import("../.pi/extensions/lemonharness/search.ts");
     const pi = createFakePI();
 
-    mod.default(pi as any);
+    mod.setupSearch(pi as any);
 
     const tool = pi.getRegisteredTools()[0];
     // The tool registration must include an execute function

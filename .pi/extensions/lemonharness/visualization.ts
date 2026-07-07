@@ -16,8 +16,8 @@ import {
   executionLogger,
   timeDirector,
   workspaceManager,
-} from "./lemonharness-workspace";
-import type { LogEntry, TimePhase, TimePhaseName } from "./lemonharness-workspace";
+} from "./workspace";
+import type { LogEntry, TimePhase, TimePhaseName } from "./workspace";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -724,7 +724,7 @@ function escapeHtml(str: unknown): string {
 // Extension Export
 // ─────────────────────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export function setupVisualization(pi: ExtensionAPI) {
   const vizGen = new VisualizationGenerator();
 
   // ── /lemonharness:visualize Command ──────────────────────────────

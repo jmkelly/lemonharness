@@ -1,3 +1,5 @@
+// @ts-nocheck — Runtime utility module, not a pi extension
+
 /**
  * LemonHarness Enhanced Subsystems
  *
@@ -1571,7 +1573,7 @@ export {
   cosineTFIDFSimilarity,
   hybridSimilarity,
   buildDocumentFrequency,
-} from "../lib/lemonharness-shared";
+} from "./shared";
 
 // Deprecated - use buildDocumentFrequency from shared module
 function buildDF(_entries: string[]): Map<string, number> {
@@ -2475,11 +2477,3 @@ export class ValidationAutoHealer {
 // Extension Factory
 // ═══════════════════════════════════════════════════════════════════════════
 
-export default function (pi: any) {
-  pi.on("session_start", async (_event: any, ctx: any) => {
-    ctx.ui.setStatus("lemonharness-subsystems", "🔧 Subsystems module loaded");
-  });
-  pi.on("session_shutdown", async (_event: any, ctx: any) => {
-    ctx.ui.setStatus("lemonharness-subsystems", undefined);
-  });
-}

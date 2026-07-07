@@ -411,7 +411,7 @@ export class SessionSummary {
 // Extension Export
 // ─────────────────────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export function setupSummary(pi: ExtensionAPI) {
   const sessionSummaries: SessionSummary[] = [];
   let currentSummary: SessionSummary | null = null;
 
@@ -436,7 +436,7 @@ export default function (pi: ExtensionAPI) {
     description: "Generate a structured session summary markdown document",
     handler: async (_args, ctx) => {
       try {
-        const wsMod = await import("./lemonharness-workspace");
+        const wsMod = await import("./workspace");
         const summary = currentSummary || new SessionSummary(join(ctx.cwd, ".lemonharness"));
 
         const markdown = await buildSummaryFromSingletons(
@@ -516,9 +516,9 @@ export default function (pi: ExtensionAPI) {
  */
 export async function buildSummaryFromLiveDataExternal(
   summary: SessionSummary,
-  workspaceManager: import("./lemonharness-workspace").WorkspaceManager,
-  timeDirector: import("./lemonharness-workspace").TimeDirector,
-  executionLogger: import("./lemonharness-workspace").ExecutionLogger,
+  workspaceManager: import("./workspace").WorkspaceManager,
+  timeDirector: import("./workspace").TimeDirector,
+  executionLogger: import("./workspace").ExecutionLogger,
   ctx: { sessionManager?: { getSessionFile?: () => string | undefined } },
   taskDescription: string,
 ): Promise<string> {
@@ -533,9 +533,9 @@ export async function buildSummaryFromLiveDataExternal(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildSummaryFromSingletons(
   summary: SessionSummary,
-  workspaceManager: import("./lemonharness-workspace").WorkspaceManager,
-  timeDirector: import("./lemonharness-workspace").TimeDirector,
-  executionLogger: import("./lemonharness-workspace").ExecutionLogger,
+  workspaceManager: import("./workspace").WorkspaceManager,
+  timeDirector: import("./workspace").TimeDirector,
+  executionLogger: import("./workspace").ExecutionLogger,
   ctx: any,
   externalTaskDescription: string,
 ): Promise<string> {
@@ -609,7 +609,7 @@ async function buildSummaryFromSingletons(
     failureCount: number;
   }> = [];
   try {
-    const subsystemsMod = await import("./lemonharness-subsystems");
+    const subsystemsMod = await import("./subsystems");
     const hm = new subsystemsMod.HeuristicManager(workspaceManager.getWorkspaceDir());
     await hm.init();
     const allH = hm.getAllHeuristics();
@@ -628,7 +628,7 @@ async function buildSummaryFromSingletons(
   // 6. Read harness metrics from disk
   let harnessMetrics: Record<string, number | string> | null = null;
   try {
-    const subsystemsMod = await import("./lemonharness-subsystems");
+    const subsystemsMod = await import("./subsystems");
     const metricsRecorder = new subsystemsMod.MetricsRecorder(workspaceManager.getWorkspaceDir());
     await metricsRecorder.init();
     const hm = metricsRecorder.getHarnessMetrics();
