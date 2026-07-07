@@ -44,6 +44,7 @@ Automated enforcement: P2 entry checks for test runner & test files. P3 quality 
 - Never swallow errors. Every `catch` must log, recover, or re-throw.
 - Use Result types for recoverable failures.
 - Fail fast on invariant violations.
+- **Hard-to-diagnose errors**: Add logging statements to narrow the problem before fixing. Log inputs, intermediate state, and the failing expression. Remove or reduce logging once resolved.
 
 ## Rule 7: Pre-Acceptance Gate
 Before declaring any task complete: file size ≤ 400 lines, no dead code/debug prints/TODO markers, code compiles, no excessive nesting.

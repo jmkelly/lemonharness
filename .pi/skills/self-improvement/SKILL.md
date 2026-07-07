@@ -30,5 +30,6 @@ The best agent fails differently each time because it learned from last time.
 - Cache expensive computations when repeating
 - Use more specific memory queries when retrieval is noisy
 - Prefer batched operations over sequential ones
+- When stuck on a bug, add logging to trace the problem before trying to fix it
 
 Full reference: `.pi/skills/self-improvement/reference.md`
