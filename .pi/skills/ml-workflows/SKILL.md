@@ -1,41 +1,28 @@
 ---
 name: ml-workflows
 description: >
-  Best practices for ML/deep learning tasks: training/validation/submission
-  artifact separation, reproducibility (random seeds, data splits), metric
-  validation against task goals. Use for any ML, DL, or data science task.
+  ML reproducibility and artifact discipline: train/val/test separation,
+  random seed recording, metric validation against task goals, checkpoint
+  management. Use for any ML, DL, or data science task.
 ---
 
 # ML Workflows
 
-## Key Rules
+**Leading word:** _leakage_ — the cardinal sin in ML is information leaking across the train/val/test boundary. Every rule below serves to prevent it.
 
-1. **Artifact separation**: Keep training outputs, validation results, and
-   submission artifacts in separate directories.
-2. **Reproducibility**: Always set random seeds (torch, numpy, python built-in
-   `random`) before training. Record the seed value and data split used.
-3. **Metric validation**: Validate final metrics against the task specification.
-   Do not assume that a decreasing loss alone indicates task completion.
-4. **Data splits**: Use explicit train/val/test splits; do not leak test data
-   into training.
-5. **Checkpointing**: Save model checkpoints periodically; keep the best
-   checkpoint based on validation metrics, not training loss.
+## Rules
+
+1. **Artifact separation** — Training outputs, validation results, and submission artifacts live in separate directories. Never mix them.
+2. **Reproducibility** — Set random seeds (`torch`, `numpy`, `random`) before every training run. Record the seed value and the exact data split used.
+3. **Metric validation** — Validate final metrics against the task specification. A decreasing loss curve alone does not mean the task is done — check the actual evaluation metric.
+4. **Data splits** — Explicit, disjoint train/val/test splits. Test data never touches training — not for normalization, not for feature engineering.
+5. **Checkpointing** — Save model checkpoints periodically. Keep the best checkpoint based on **validation** metrics, never training loss.
 
 ## Setup
 
-Run once before first use:
-
-```bash
-# No special setup needed; rules are loaded into agent context.
-```
-
-## Usage
-
-When the model detects an ML-related task, it should read this skill's
-references for detailed guidance on reproducibility and metrics.
-
-See [reproducibility](references/reproducibility.md) for seed and split best practices.
-See [metric-definitions](references/metric-definitions.md) for common ML metrics and validation patterns.
+Detailed reproducibility and metrics guidance:
+- [Reproducibility](references/reproducibility.md) — seed and split best practices
+- [Metric definitions](references/metric-definitions.md) — common ML metrics and validation patterns
 
 ---
 
@@ -45,9 +32,9 @@ See [metric-definitions](references/metric-definitions.md) for common ML metrics
 SKILL ml-workflows
 
 INPUTS:
-  taskType: string          // training, inference, evaluation, deployment
+  taskType: string          // training, inference, evaluation
   framework: string         // pytorch, tensorflow, sklearn
-  hasGPU: boolean           // Whether GPU acceleration is available
+  hasGPU: boolean           // GPU acceleration available
   dataFormat: string        // csv, image, text, hdf5, etc.
 
 OUTPUTS:
@@ -59,9 +46,9 @@ OUTPUTS:
   trainingArtifact: object  // checkpoint path, metrics, final model
 
 PRECONDITIONS:
-  - Random seed (torch, numpy, random) set before training
-  - Data splits are disjoint with no leakage
-  - Test data is held out until final evaluation
+  - Random seed set before training (torch, numpy, random)
+  - Data splits disjoint with no leakage
+  - Test data held out until final evaluation
 
 POSTCONDITIONS:
   - Training/validation/submission artifacts in separate directories
@@ -70,7 +57,7 @@ POSTCONDITIONS:
   - Seed and data split recorded in reproducibility log
 
 ERROR_HANDLING:
-  - If GPU requested but unavailable -> fall back to CPU with warning
-  - If data split leakage detected -> abort and re-split
-  - If validation metric diverges from expected -> log anomaly
+  - GPU requested but unavailable → fall back to CPU with warning
+  - Data split leakage detected → abort and re-split
+  - Validation metric diverges from expected → log anomaly
 ```

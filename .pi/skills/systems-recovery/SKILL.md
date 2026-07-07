@@ -1,40 +1,33 @@
 ---
 name: systems-recovery
 description: >
-  Rules for systems recovery and disaster response tasks: controlled
-  execution paths, recoverable artifacts, and build/integrity/runtime
-  probes. Use for debugging crashes, data recovery, failover scenarios,
-  or infrastructure repair.
+  Disaster response and systems recovery: controlled execution paths,
+  backup-first discipline, build/runtime probes, and checkpoint-based
+  rollback. Use for debugging crashes, data recovery, failover
+  scenarios, or infrastructure repair.
 ---
 
 # Systems Recovery
 
-## Key Rules
+**Leading word:** _checkpoint_ — before every state-changing operation, create a point you can return to. Recovery is a series of checkpoints, not a single rollback.
 
-1. **Controlled paths**: Always operate on copies of important data first.
-   Never modify the last known good backup in-place without verification.
-2. **Recoverable artifacts**: Create recovery checkpoints before making
-   state-changing operations. Log each step so rollback is possible.
-3. **Build probes**: Before attempting a fix, verify the build system
-   integrity (compiler available, dependencies intact, disk space).
-4. **Runtime probes**: Check process health, resource usage, and log
-   files before diagnosing the root cause.
-5. **Backup first**: Before any repair, ensure a recent, verified backup
-   exists. Test that the backup is restorable.
+## Rules
 
-## Setup
+1. **Backup first** — Before any repair, ensure a recent, verified backup exists. Test that the backup is restorable before modifying anything.
+2. **Controlled paths** — Operate on copies of important data first. Never modify the last known good backup in-place without verification.
+3. **Checkpoints** — Create recovery checkpoints before every state-changing operation. Log each step so rollback is possible at any point.
+4. **Build probes** — Before attempting a fix, verify build system integrity: compiler available, dependencies intact, disk space sufficient.
+5. **Runtime probes** — Check process health, resource usage, and log files before diagnosing root cause. Don't guess — probe first.
+
+## Diagnostic Tools
 
 ```bash
-# Recovery tools may be needed:
-# - rsync for file-level backups
-# - dmesg/journalctl for system logs
-# - strace/lsof for process diagnostics
+# rsync — file-level backups
+# dmesg/journalctl — system logs
+# strace/lsof — process diagnostics
 ```
 
-## Usage
-
-See [probe-strategies](references/probe-strategies.md) for detailed
-probing and diagnostic patterns.
+Detailed probing patterns: [`references/probe-strategies.md`](references/probe-strategies.md)
 
 ---
 
@@ -49,12 +42,9 @@ INPUTS:
   backupPath?: string       // Optional path to known-good backup
 
 OUTPUTS:
-  recoveryPlan: array       // Ordered list of recovery steps
+  recoveryPlan: array       // Ordered recovery steps
   rootCause: string         // Identified root cause
-  recoveryStatus: object    // // Status of each recovery step
-  //   step: string
-  //   status: string
-  //   rollback?: string
+  recoveryStatus: object    // Status per step with rollback info
 
 PRECONDITIONS:
   - Backup verified restorable before any modification
@@ -62,14 +52,14 @@ PRECONDITIONS:
   - Runtime probes collected before diagnosis
 
 POSTCONDITIONS:
-  - All state changes are logged for rollback
-  - Recovery checkpoints exist before each state change
-  - If recovery fails -> rollback to last checkpoint
+  - All state changes logged for rollback
+  - Recovery checkpoints before each state change
+  - If recovery fails → rollback to last checkpoint
   - Root cause documented for future prevention
 
 ERROR_HANDLING:
-  - If backup not restorable -> halt and alert
-  - If build system missing or corrupted -> repair before recovery
-  - If runtime probe fails -> fall back to log analysis
-  - If recovery step fails -> rollback to last checkpoint
+  - Backup not restorable → halt and alert
+  - Build system missing or corrupted → repair before recovery
+  - Runtime probe fails → fall back to log analysis
+  - Recovery step fails → rollback to last checkpoint
 ```

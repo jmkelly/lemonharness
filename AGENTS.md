@@ -57,7 +57,7 @@ optimizations for pi:
 | `.pi/extensions/lemonharness-search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
 
 | `.lemonharness/search.py` | Python search backend (DDGS, arXiv API, Semantic Scholar API) |
-| `.pi/skills/` | Domain-specific rule knowledge (15 domains) |
+| `.pi/skills/` | Domain-specific rule knowledge (16 domains) |
 | `.pi/skills/.index.md` | Master skill index with auto-detect keywords and cross-references |
 | `.pi/settings.json` | Project settings with full LemonHarness config |
 | `lemonharness-pi-plan.md` | Full implementation plan |
@@ -99,7 +99,7 @@ optimizations for pi:
 | `/search arxiv:<query>` | Search arXiv specifically |
 | `/memory:status` | Show memory stats and recent events |
 | `/memory:forget <id>` | Remove a memory entry |
-| `/skill:<name>` | Load any skill (15 available) |
+| `/skill:<name>` | Load any skill (16 available) |
 | `/improvement:reflect` | Run structured self-reflection (auto-extracts ERL heuristics) |
 | `/improvement:review` | Review improvement history this session |
 | `/improvement:status` | Show self-improvement metrics |
@@ -151,7 +151,10 @@ Checks: file size limits, cyclomatic complexity, maintainability index,
 lint errors, test coverage. See engineering-practices skill for thresholds.
 
 Three skills are **always loaded**: `general-rules`, `engineering-practices`,
-and `self-improvement`.
+and `self-improvement`. A fourth meta-skill, `writing-great-skills` (from Matt Pocock's
+[mattpocock/skills](https://github.com/mattpocock/skills)), provides the vocabulary
+and principles for maintaining all skills — use it when creating new skills or pruning
+existing ones.
 
 ## 2026 Research Integration
 

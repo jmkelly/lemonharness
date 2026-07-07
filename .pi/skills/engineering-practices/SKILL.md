@@ -1,107 +1,76 @@
 ---
 name: engineering-practices
 description: >
-  Concise engineering guardrails: TDD, simplicity, complexity control, quality gates.
-  Always loaded as a base skill.
+  Engineering guardrails for every task: TDD (red-green-refactor),
+  simplicity (KISS/YAGNI), complexity thresholds, and code review
+  readiness checks. Always loaded.
 ---
 
 # Engineering Practices
 
-## Core: Simplicity First
-> *"Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away."*
+**Leading word:** _guardrails_ — these aren't suggestions, they're hard bounds that every line of code must pass through.
 
-Every line is a liability. Write the simplest thing, then make it smaller. Apply KISS, YAGNI, DRY.
+The **guardrails** that apply to every line of code. These are the four non-negotiables: write a test first, keep it simple, bound complexity, and leave it clean.
 
-## Rule 1: TDD (Test-Driven Development)
+## 1. TDD: Red → Green → Refactor
 
-**Red → Green → Refactor.** Always.
-1. **Red** — Write a failing test first.
+The sequence binds every change:
+1. **Red** — Write a failing test _before_ any implementation code.
 2. **Green** — Write the simplest code that passes the test.
 3. **Refactor** — Improve the code while keeping tests green.
 
-> **Pre-check**: Before writing any implementation code, ask yourself: *"What test would prove this works?"* If you can't answer, you don't understand the problem yet.
+**Pre-check**: If you can't name the test that proves it works, you don't understand the problem yet.
 
-### Automated Enforcement (LemonHarness Guardrails)
-- **P2 entry** (Implement phase): Quality gate checks for test runner (`npm test`) and existing test files. Blocks if missing.
-- **P3 entry** (Validate phase): Auto-runs tests. Blocks if any test fails. No manual override.
+**LemonHarness enforcement**:
+- P2 entry: quality gate checks for test runner and existing tests. Blocks if missing.
+- P3 entry: auto-runs tests. Blocks on any failure.
 
-```
-P1 Explore → [TDD check on Implement entry] → P2 Implement → [Auto-test on Validate entry] → P3 Validate → P4 Reserve
-```
+## 2. Simplicity (KISS, YAGNI)
 
-## Rule 2: Simplicity (KISS, YAGNI)
-- Solve today's problem. Don't anticipate unknown futures.
+- Solve today's problem, not tomorrow's.
+- Max 3 levels of indentation. Extract methods past that.
 - If you can't write a test for it, don't write it.
-- Max 3 levels of indentation. Extract methods beyond that.
 
-## Rule 3: Complexity Control
+## 3. Complexity Thresholds
 
-| Metric | Threshold |
-|--------|-----------|
+| Metric | Ceiling |
+|--------|---------|
 | Cyclomatic complexity per function | ≤ 10 |
 | Lines per function | ≤ 10 |
 | Lines per file | ≤ 400 (split at 300) |
-| Parameters per function | ≤ 3 (use object params beyond) |
+| Parameters per function | ≤ 3 (use object param) |
 
-- Avoid ternaries longer than one line.
-- No `any` type in TypeScript (prefer `unknown`).
+- No `any` in TypeScript (prefer `unknown`).
+- No ternaries longer than one line.
 
-## Rule 4: Consistency & Naming
+## 4. Naming Convention
+
 - Files: `kebab-case.ts`. Types/interfaces: `PascalCase`. Everything else: `camelCase`.
-- One component/export per file. Group related files in directories.
-- Booleans: prefix with `is`, `has`, `should`, `can`.
+- Booleans: prefix `is`, `has`, `should`, `can`.
+- One export per file. Group related files in directories.
 
-## Rule 5: Dependencies
-- Re-evaluate at each use. Remove unused imports.
-- Prefer native APIs over libraries.
+## 5. Code Review Readiness
 
-## Rule 6: Error Handling
-- Never swallow errors. Every `catch` must log, recover, or re-throw.
-- Use Result types for recoverable failures.
-- Fail fast on invariant violations.
-- **Hard-to-diagnose errors**: Add logging statements to narrow the problem before fixing. Log inputs, intermediate state, and the failing expression. Remove or reduce logging once resolved.
+Before requesting review, self-review your diff as if seeing it for the first time. Delete commented-out code. Every PR must include a test that fails without the change.
 
-## Rule 7: Pre-Acceptance Gate
-Before declaring any task complete:
-- File size ≤ 400 lines
-- No dead code, debug prints, or TODO markers
-- Code compiles without errors
-- All tests pass
-- No excessive nesting (≤ 3 levels)
+## 6. Error Handling
 
-## Rule 8: Conventional Commits
-Use `<type>(<scope>): <description>` format:
-- `feat` — New feature
-- `fix` — Bug fix
-- `test` — Adding/improving tests
-- `refactor` — Code change that neither adds nor fixes
-- `docs` — Documentation only
-- `chore` — Build, deps, tooling, config
-- `perf` — Performance improvement
-- `style` — Formatting, whitespace (no logic change)
+- Every `catch` must log, recover, or re-throw. No silent swallows.
+- Use Result types for recoverable failures. Fail fast on invariants.
+- **Hard errors**: log inputs and intermediate state before fixing. Remove logs once resolved.
 
-## Rule 9: Code Review Readiness
-- Self-review before requesting review: re-read your diff as if you're seeing it for the first time.
-- Every PR must include a test that would fail without the change.
-- No commented-out code. Delete it.
+## 7. Technical Debt
 
-## Rule 10: Logging & Observability
-- Log at entry and exit of every external boundary (API, DB, file I/O).
-- Use structured logging (JSON) in production. Use human-readable in development.
-- Include correlation IDs for request tracing.
-
-## Rule 11: Security First
-- Never log secrets, tokens, passwords, or PII.
-- Validate all user input at the boundary.
-- Use parameterized queries for all database operations.
-- Apply least-privilege principle to dependencies.
-
-## Rule 12: Technical Debt Management
 - Leave code cleaner than you found it (Boy Scout Rule).
-- File a TODO or issue for intentional shortcuts with a plan to revisit.
-- If a fix takes < 15 minutes, do it now rather than tracking it.
+- File an issue for intentional shortcuts. If a fix takes < 15 min, do it now.
 
 ---
+
+See also:
+- **Observability** (structured logging, tracing) → `observability` skill
+- **Security** (input validation, secrets) → `security-practices` skill
+- **Quality gate** → `general-rules`
+- **Commit conventions** → `general-rules/reference.md`
 
 ## Pseudocode Contract
 
@@ -114,7 +83,6 @@ POSTCONDITIONS:
   - tests_pass
   - complexity_within_thresholds
   - tdd_compliant
-  - conventional_commit_format
 ```
 
 Full reference: `.pi/skills/engineering-practices/reference.md`

@@ -1,37 +1,30 @@
 ---
 name: vision-media
 description: >
-  Rules for computer vision and media processing tasks: command interface
-  stability, row/frame/mask alignment, and visual output validation.
-  Use for image processing, video analysis, object detection, segmentation,
-  or any computer vision task.
+  Computer vision and media processing: CLI interface stability,
+  coordinate alignment (row-major vs column-major), shape consistency
+  after transformations, and output validation. Use for image processing,
+  video analysis, object detection, segmentation.
 ---
 
 # Vision Media
 
-## Key Rules
+**Leading word:** _alignment_ — coordinates, dimensions, channels, and color spaces must be aligned between input and output. A misaligned pixel is a silent bug.
 
-1. **Command interface stability**: When using CLI tools (ffmpeg, ImageMagick,
-   OpenCV CLI), verify the output format before further processing.
-2. **Row/frame/mask alignment**: Ensure that coordinates, dimensions, and
-   masks are properly aligned between input and output. Verify shape
-   consistency after transformations.
-3. **Visual output validation**: Always verify generated images or videos
-   by checking dimensions, color channels, and file integrity.
-4. **Coordinate systems**: Be explicit about coordinate conventions
-   (row-major vs column-major, y-up vs y-down, center vs corner).
+## Rules
+
+1. **CLI stability** — When using CLI tools (`ffmpeg`, ImageMagick, OpenCV CLI), verify the output format before further processing. Don't assume the tool produced what you asked for.
+2. **Coordinate alignment** — Ensure coordinates, dimensions, and masks are properly aligned between input and output. Verify shape consistency after every transformation.
+3. **Output validation** — Always verify generated images/videos: check dimensions, color channels, and file integrity before declaring success.
+4. **Coordinate conventions** — Be explicit: row-major vs column-major, y-up vs y-down, center vs corner. State the convention once and keep it consistent.
 
 ## Setup
 
 ```bash
-# Install common vision libraries as needed:
 pip install opencv-python pillow matplotlib numpy
 ```
 
-## Usage
-
-See [output-validation](references/output-validation.md) for procedures
-to validate visual outputs.
+Output validation procedures: [`references/output-validation.md`](references/output-validation.md)
 
 ---
 
@@ -66,7 +59,7 @@ POSTCONDITIONS:
   - Coordinate convention consistent between input and output
 
 ERROR_HANDLING:
-  - If input file corrupt -> abort with integrity report
-  - If dimension mismatch -> reshape or error with details
-  - If CLI tool produces unexpected output -> re-verify format
+  - Input file corrupt → abort with integrity report
+  - Dimension mismatch → reshape or error with details
+  - CLI tool produces unexpected output → re-verify format
 ```

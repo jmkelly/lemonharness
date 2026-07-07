@@ -1,19 +1,22 @@
 ---
 name: general-rules
 description: >
-  Concise cross-cutting execution rules for all tasks.
+  Cross-cutting execution guardrails for all tasks: workspace discipline,
+  verification closures, quality gates, and data integrity rules.
   Always loaded as the base skill.
 ---
 
-# General Rules (Condensed)
+# General Rules
 
-1. **Data splits**: Keep train/val/test separate. Never leak test data.
-2. **Random seeds**: Set and record seeds for reproducibility.
-3. **Validation metrics**: Define "done" before declaring completion.
-4. **Workspace discipline**: All artifacts in workspace. Track changes.
-5. **Incremental verification**: Verify after each state change. Fail fast.
-6. **Dependency management**: Record all deps. Use project-local installs.
-7. **Full correction closure**: Fix both the task *and* the process in one turn. Close all four: stated fix, root cause, tooling update, verification.
-8. **Quality gate**: Run `.lemonharness/pre-acceptance-gate.sh` before accepting sub-agent work. Run `.lemonharness/quality-gate.sh` in P3.
+**Leading word:** _guardrails_ — hard binary checks that fire on every task regardless of domain. Each rule is a pass-or-fail gate. All must clear before the task is complete.
 
-Full version: `.pi/skills/general-rules/reference.md`
+1. **Data splits** — train/val/test are disjoint. Test data never leaks.
+2. **Random seeds** — set and record seeds before any stochastic operation.
+3. **Validation metrics** — define the _done bar_ before starting the work, not after.
+4. **Workspace discipline** — all artifacts in `.lemonharness/`. Track every change.
+5. **Incremental verification** — verify after each state change. Fail fast, not late.
+6. **Dependency management** — record every dependency. Use project-local installs only.
+7. **Full correction closure** — a fix closes four doors: stated fix, root cause diagnosis, tooling update (guardrail/heuristic), and verification it held. Never close fewer.
+8. **Quality gate** — run `.lemonharness/pre-acceptance-gate.sh` before accepting sub-agent work. Run `.lemonharness/quality-gate.sh` on P3 entry.
+
+Full reference: `.pi/skills/general-rules/reference.md`

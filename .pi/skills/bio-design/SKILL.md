@@ -1,37 +1,33 @@
 ---
 name: bio-design
 description: >
-  Rules for bio-design and computational biology tasks: stable API data
-  retrieval, biological validity constraints, and synthesis constraints.
-  Use for protein design, DNA/RNA analysis, molecular dynamics, or
-  any computational biology task.
+  Computational biology guardrails: stable API retrieval from biological
+  databases, biological validity constraints (amino acid / DNA alphabets),
+  synthesis constraints (GC content, repeats), and data provenance.
+  Use for protein design, DNA/RNA analysis, molecular dynamics.
 ---
 
-# Bio-design
+# Bio-Design
 
-## Key Rules
+**Leading word:** _alphabet_ — every biological sequence belongs to a constrained alphabet. Validate against it before any operation.
 
-1. **API stability**: When querying biological databases (UniProt, PDB, NCBI),
-   handle rate limiting, retries, and connection timeouts gracefully.
-2. **Biological validity**: Validate outputs against known biological
-   constraints (e.g., amino acid sequences must use standard 20-letter code,
-   DNA sequences must contain only A/T/G/C).
-3. **Synthesis constraints**: If designing sequences for synthesis, check
-   for GC content, repeats, and secondary structure issues.
-4. **Data provenance**: Record the source and version of all biological
-   reference data used.
+## Rules
+
+1. **API stability** — Biological databases (UniProt, PDB, NCBI) rate-limit and timeout. Handle retries with backoff, connection timeouts, and graceful degradation.
+2. **Alphabet validation** — Every sequence must be validated against its biological alphabet before processing:
+   - Amino acids: standard 20-letter code only
+   - DNA: `A/T/G/C` only
+   - RNA: `A/U/G/C` only
+3. **Synthesis constraints** — For sequences destined for synthesis, check GC content (30–70% for DNA), homopolymer repeats (≤6 identical bases), and secondary structure.
+4. **Provenance** — Record source and version of every reference database used.
 
 ## Setup
 
 ```bash
-# Install common bioinformatics libraries as needed:
 pip install biopython requests
 ```
 
-## Usage
-
-See [synthesis-constraints](references/synthesis-constraints.md) for
-detailed constraints on sequence design for synthesis.
+Detailed constraints: see [`references/synthesis-constraints.md`](references/synthesis-constraints.md)
 
 ---
 
@@ -48,24 +44,21 @@ INPUTS:
 
 OUTPUTS:
   validatedSequence: string // Biologically validated sequence
-  provenanceLog: object     // // Database sources and versions
-  //   database: string
-  //   version: string
-  //   accession: string
+  provenanceLog: object     // Database sources and versions
 
 PRECONDITIONS:
-  - API rate limits must be respected for external databases
-  - Biological alphabet constraints must be checked (20aa / ATGC)
-  - Sequence length must be within synthesis constraints
+  - API rate limits respected for external databases
+  - Biological alphabet constraints checked (20aa / ATGC)
+  - Sequence length within synthesis constraints
 
 POSTCONDITIONS:
   - Sequence uses only standard biological alphabet
-  - GC content within 30-70% for synthetic DNA
-  - No long homopolymer repeats (>6 identical bases for DNA)
+  - GC content within 30–70% for synthetic DNA
+  - No homopolymer repeats >6 identical bases
   - All data sources recorded with version
 
 ERROR_HANDLING:
-  - If API rate limited -> exponential backoff with jitter
-  - If sequence contains invalid characters -> reject with details
-  - If GC content outside bounds -> flag for synthesis review
+  - API rate limited → exponential backoff with jitter
+  - Invalid characters → reject with character-level details
+  - GC content out of bounds → flag for synthesis review
 ```
