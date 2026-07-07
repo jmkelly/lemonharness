@@ -57,7 +57,7 @@ optimizations for pi:
 | `.pi/extensions/lemonharness-search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
 
 | `.lemonharness/search.py` | Python search backend (DDGS, arXiv API, Semantic Scholar API) |
-| `.pi/skills/` | Domain-specific rule knowledge (16 domains) |
+| `.pi/skills/` | Domain-specific rule knowledge (18 domains) |
 | `.pi/skills/.index.md` | Master skill index with auto-detect keywords and cross-references |
 | `.pi/settings.json` | Project settings with full LemonHarness config |
 | `lemonharness-pi-plan.md` | Full implementation plan |
@@ -97,9 +97,11 @@ optimizations for pi:
 
 | `/search <query>` | Search web or arXiv from command line |
 | `/search arxiv:<query>` | Search arXiv specifically |
+| `/skill:research` | Structured primary-source investigation with web_search |
+| `/skill:handoff` | Create a session handoff document for the next agent |
 | `/memory:status` | Show memory stats and recent events |
 | `/memory:forget <id>` | Remove a memory entry |
-| `/skill:<name>` | Load any skill (16 available) |
+| `/skill:<name>` | Load any skill (18 available) |
 | `/improvement:reflect` | Run structured self-reflection (auto-extracts ERL heuristics) |
 | `/improvement:review` | Review improvement history this session |
 | `/improvement:status` | Show self-improvement metrics |
@@ -151,10 +153,11 @@ Checks: file size limits, cyclomatic complexity, maintainability index,
 lint errors, test coverage. See engineering-practices skill for thresholds.
 
 Three skills are **always loaded**: `general-rules`, `engineering-practices`,
-and `self-improvement`. A fourth meta-skill, `writing-great-skills` (from Matt Pocock's
-[mattpocock/skills](https://github.com/mattpocock/skills)), provides the vocabulary
-and principles for maintaining all skills — use it when creating new skills or pruning
-existing ones.
+and `self-improvement`. Two meta-skills from Matt Pocock's
+[mattpocock/skills](https://github.com/mattpocock/skills) are available on demand:
+- `writing-great-skills` — vocabulary and principles for maintaining skill quality
+- `research` — structured primary-source investigation using `web_search`, mapped to P1
+- `handoff` — user-invoked session bridge document for P4 Reserve
 
 ## 2026 Research Integration
 
@@ -200,10 +203,10 @@ Key v3 settings:
 
 | Phase | Budget | Goal | Key Action |
 |---|---|---|---|
-| **Explore** P1 | 0–30% | Understand & plan | Read files, load skills, search research |
+| **Explore** P1 | 0–30% | Understand & plan | Read files, load skills, **run research** → `.lemonharness/research/` |
 | **Implement** P2 | 30–60% | Build solution | Write files, install deps, run code |
 | **Validate** P3 | 60–90% | Verify & lock in | Run tests ← **quality gate auto-triggers** |
-| **Reserve** P4 | 90–100% | Preserve output | Summarize, no new changes |
+| **Reserve** P4 | 90–100% | Preserve output | **Run handoff** → `/tmp/lemonharness-handoff-*.md`, snapshot workspace |
 
 ## Commit Convention
 
