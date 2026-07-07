@@ -1571,7 +1571,7 @@ export {
   cosineTFIDFSimilarity,
   hybridSimilarity,
   buildDocumentFrequency,
-} from "./lemonharness-shared";
+} from "../lib/lemonharness-shared";
 
 // Deprecated - use buildDocumentFrequency from shared module
 function buildDF(_entries: string[]): Map<string, number> {

@@ -93,7 +93,28 @@ else
 fi
 echo ""
 
-# ── 2. Cyclomatic Complexity ──────────────────────────────────────
+# ── 2. Extension Factory Check ────────────────────────────────────
+echo "─── 🏭 Extension Factory Check ───"
+EXT_BAD=0
+if [ -d ".pi/extensions" ]; then
+  while IFS= read -r -d '' f; do
+    basename_f=$(basename "$f")
+    if ! grep -q "export default function" "$f" 2>/dev/null; then
+      echo "  ❌ $basename_f — missing 'export default function' (not a valid pi extension)"
+      echo "     Move shared utilities to .pi/lib/ and update imports"
+      EXT_BAD=$((EXT_BAD + 1))
+    fi
+  done < <(find .pi/extensions -maxdepth 1 -type f -name "*.ts" -print0 2>/dev/null)
+  if [ "$EXT_BAD" -gt 0 ]; then
+    echo "  ❌ $EXT_BAD file(s) in .pi/extensions/ missing factory export"
+    FAILED=$((FAILED + EXT_BAD))
+  else
+    echo "  ✅ All .pi/extensions/ files export valid factory functions"
+  fi
+fi
+echo ""
+
+# ── 3. Cyclomatic Complexity ──────────────────────────────────────
 echo "─── 🔄 Cyclomatic Complexity ───"
 case "$LANGUAGE" in
   python)

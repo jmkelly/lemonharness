@@ -56,6 +56,7 @@ optimizations for pi:
 | `.pi/extensions/lemonharness-integration.ts` | Integration adapter for v3 subsystems |
 | `.pi/extensions/lemonharness-search.ts` | Web search tool (arXiv, web, Semantic Scholar) |
 
+| `.pi/lib/` | Shared utilities (not loaded as pi extensions — `lemonharness-shared.ts`) |
 | `.lemonharness/search.py` | Python search backend (DDGS, arXiv API, Semantic Scholar API) |
 | `.pi/skills/` | Domain-specific rule knowledge (18 domains) |
 | `.pi/skills/.index.md` | Master skill index with auto-detect keywords and cross-references |
@@ -149,8 +150,9 @@ based on enforced verification research. Manual trigger always available:
 /lemonharness:quality-gate
 ```
 
-Checks: file size limits, cyclomatic complexity, maintainability index,
-lint errors, test coverage. See engineering-practices skill for thresholds.
+Checks: file size limits, extension factory export validation,
+cyclomatic complexity, maintainability index, lint errors, test coverage.
+See engineering-practices skill for thresholds.
 
 Three skills are **always loaded**: `general-rules`, `engineering-practices`,
 and `self-improvement`. Two meta-skills from Matt Pocock's
@@ -198,6 +200,21 @@ Key v3 settings:
 - `lemonharness.toolPrivilege.enabled` — Tool privilege monitoring
 - `lemonharness.skills.pseudocodeEnabled` — SaP contract verification on skill load
 - `lemonharness.keyMoments.enabled` — Key-moment detection in memory
+
+## Directory Conventions
+
+The `.pi/` directory is structured as follows — follow this when adding new files:
+
+| Directory | Purpose | Convention |
+|-----------|---------|------------|
+| `.pi/extensions/` | pi extension entry points | Every `.ts` file **must** `export default function (pi: ExtensionAPI)` |
+| `.pi/lib/` | Shared utilities imported by extensions | No factory function; just named exports |
+| `.pi/skills/` | Domain-specific skill files | Each skill has a `SKILL.md` and optional `references/` |
+| `.pi/settings.json` | Project configuration | Single file, not a directory |
+
+**Critical rule**: Never place shared utility files in `.pi/extensions/`. Pi scans ALL `.ts` files in that directory and tries to load them as extensions. Every file there must export a default factory function. Put shared code in `.pi/lib/` instead.
+
+The quality gate automatically validates this — `bash .lemonharness/quality-gate.sh` will fail if any file in `.pi/extensions/` is missing `export default function`.
 
 ## Quick Reference
 

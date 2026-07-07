@@ -6,6 +6,11 @@
  * - String and formatting utilities
  * - File helpers
  *
+ * IMPORTANT: This file lives in .pi/lib/, NOT .pi/extensions/.
+ * Pi loads ALL .ts files in .pi/extensions/ as extensions, expecting
+ * each to export a default factory function. Shared utility modules
+ * must be placed in .pi/lib/ and imported by extensions from there.
+ *
  * Created to eliminate duplicate implementations across:
  *   lemonharness-memory.ts  (MemoryStore.tfidfSimilarity + hybridSimilarity)
  *   lemonharness-subsystems.ts (cosineTFIDFSimilarity + hybridSimilarity)
