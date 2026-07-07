@@ -49,6 +49,12 @@ let commitAwareMemory: CommitAwareMemory | null = null;
 let qualityGateAlreadyTriggered = false;
 let validationAutoHealer: ValidationAutoHealer | null = null;
 
+// ── Metrics Tracking State ───────────────────────────────────────
+// Track last error timestamp for recovery efficiency calculation
+let lastErrorTimestamp: number | null = null;
+// Track which validation commands have passed before for regression detection
+const passedValidations: Set<string> = new Set();
+
 // ── Delegate Tracking ─────────────────────────────────────────────
 
 interface DelegateRecord {
