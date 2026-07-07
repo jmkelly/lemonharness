@@ -34,6 +34,7 @@
 import { mkdir, readFile, readdir, writeFile, stat as fsStat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Dependency Graph — Execution Provenance
@@ -1381,7 +1382,7 @@ export class CommitAwareMemory {
       if (gitLog === "NOT_TRACKED" || !gitLog) return null;
       const lines = gitLog.split("\n").filter((l: string) => l.trim());
       const commits = lines.map((line: string) => { const [hash, ...msg] = line.split(" "); return { hash: hash || "unknown", message: msg.join(" ") || "", files: [filePath], timestamp: Date.now() }; });
-      const msgs = commits.map(c => c.message).join(" ");
+      const msgs = commits.map((c: { hash: string; message: string }) => c.message).join(" ");
       let intent = "modified file";
       if (/^fix|^bug|^hotfix/i.test(msgs)) intent = "bug fix";
       else if (/^feat|^feature|^add/i.test(msgs)) intent = "feature addition";

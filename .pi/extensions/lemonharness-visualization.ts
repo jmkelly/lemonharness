@@ -389,7 +389,8 @@ ${HTML_STYLES}
       this._formatDuration(totalBudgetMs)];
     const timeRow = timeMarkers.map((t, i) => {
       const pos = Math.round((i / (timeMarkers.length - 1)) * timelineWidth);
-      return " ".repeat(Math.max(0, pos - (i > 0 ? timeRow?.length ?? 0 : 0))) + t;
+      const prevLen = i > 0 ? timeMarkers.slice(0, i).reduce((acc, x) => acc + x.length + 1, 0) : 0;
+      return " ".repeat(Math.max(0, pos - prevLen)) + t;
     });
     const timeRowStr = timeMarkers.reduce((acc, t, i) => {
       const pos = Math.round((i / (timeMarkers.length - 1)) * timelineWidth);
@@ -751,7 +752,7 @@ export default function (pi: ExtensionAPI) {
         const html = vizGen.generateHTML(trail, currentPhase, budgetData, startTime);
         const reportPath = join(workspaceDir, "execution-report.html");
         await writeFile(reportPath, html, "utf-8");
-        ctx.ui.notify(`🍋 HTML report saved to: ${reportPath}`, "success");
+        ctx.ui.notify(`🍋 HTML report saved to: ${reportPath}`, "info");
       } catch (err: any) {
         ctx.ui.notify(`❌ Failed to write HTML report: ${err.message}`, "error");
       }

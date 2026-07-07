@@ -1214,9 +1214,7 @@ export default function (pi: ExtensionAPI) {
     // Record errors as failure events
     if (event.isError) {
       const summary = `${event.toolName} failed`;
-      const details = typeof event.content === "string"
-        ? event.content.slice(0, 500)
-        : JSON.stringify(event.content).slice(0, 500);
+      const details = JSON.stringify(event.content).slice(0, 500);
 
       await memoryStore.recordEvent("failure", summary, details, {
         context: `Tool: ${event.toolName}`,
@@ -1228,7 +1226,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── Pre-Action Governance ──────────────────────────────────────
 
-  pi.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call" as any, async (event: any, ctx: any) => {
     if (!initialized) return;
 
     // Intercept edit tool — check if target was previously a failure
@@ -1248,7 +1246,7 @@ export default function (pi: ExtensionAPI) {
             memoryWarning: check.warning,
             memorySuggestion: check.suggestion,
           },
-        };
+        } as any;
       }
     }
 
@@ -1324,7 +1322,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const event = await memoryStore.recordEvent(
-        params.type,
+        params.type as MemoryEventType,
         params.summary,
         enrichedDetails,
         {
@@ -1332,7 +1330,7 @@ export default function (pi: ExtensionAPI) {
           tags: enrichedTags
             ? enrichedTags.split(",").map((t) => t.trim()).filter(Boolean)
             : tags,
-          outcome: params.outcome,
+          outcome: params.outcome as "success" | "failure" | "unknown" | undefined,
         },
       );
 

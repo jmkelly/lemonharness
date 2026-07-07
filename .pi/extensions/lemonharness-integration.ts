@@ -231,7 +231,8 @@ export default function (pi: ExtensionAPI) {
           if (passed) {
             verificationRefinement.promoteOnPass(cmd as string, relatedPatterns);
           } else {
-            verificationRefinement.demoteOnFail(cmd as string, (event.content || "") as string, relatedPatterns);
+            const contentStr = Array.isArray(event.content) ? event.content.map(c => 'text' in c ? c.text : '').join('\n') : String(event.content || '');
+            verificationRefinement.demoteOnFail(cmd as string, contentStr, relatedPatterns);
           }
         }
 
@@ -253,7 +254,7 @@ export default function (pi: ExtensionAPI) {
             // Fix applied successfully — suggest re-running validation
             ctx.ui.notify(
               `✅ Auto-healed validation: ${healResult.attemptedFix}\nRe-run validation to confirm.`,
-              "success",
+              "info",
             );
           } else if (healResult.attemptedFix) {
             // Fix attempted but failed — inform user
@@ -562,7 +563,7 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify("🍋 Running quality gate...", "info");
       const result = await qualityGateManager.run();
       if (result.passed) {
-        ctx.ui.notify(`✅ Quality gate PASSED\n\n${result.output.slice(0, 1000)}`, "success");
+        ctx.ui.notify(`✅ Quality gate PASSED\n\n${result.output.slice(0, 1000)}`, "info");
       } else {
         ctx.ui.notify(`❌ Quality gate FAILED\n\n${result.output.slice(0, 2000)}`, "error");
       }
@@ -738,7 +739,7 @@ export default function (pi: ExtensionAPI) {
             : "";
           ctx.ui.notify(
             `✅ Auto-healed! Fix applied: ${result.attemptedFix}.${retryMsg}`,
-            "success",
+            "info",
           );
         } else if (result.attemptedFix) {
           const suggestion = result.topSuggestion

@@ -1214,7 +1214,7 @@ function readLemonHarnessSettings(): LemonHarnessSettings {
     if (existsSync(settingsPath)) {
       const raw = readFileSync(settingsPath, "utf-8");
       _cachedSettings = JSON.parse(raw).lemonharness || {};
-      return _cachedSettings;
+      return _cachedSettings!;
     }
   } catch { console.error("Workspace: operation failed"); }
   _cachedSettings = {};
@@ -1496,7 +1496,7 @@ export default function (pi: ExtensionAPI) {
             execSync("git add -A", { cwd: ctx.cwd, stdio: "pipe" });
             execSync(`git commit -m "${summary}" -m "${diffStats}"`, { cwd: ctx.cwd, stdio: "pipe" });
             const hash = execSync("git rev-parse --short HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
-            ctx.ui.notify(`📸 Auto-committed remaining changes as ${hash}`, "success");
+            ctx.ui.notify(`📸 Auto-committed remaining changes as ${hash}`, "info");
             autoCommitDone = true;
           }
         } catch { /* git not available or nothing to commit */ }
@@ -1514,7 +1514,7 @@ export default function (pi: ExtensionAPI) {
             sessionPromptDescription,
           );
           const path = await summary.saveSummary(markdown);
-          ctx.ui.notify(`📝 Session summary auto-generated and saved to \`${path}\``, "success");
+          ctx.ui.notify(`📝 Session summary auto-generated and saved to \`${path}\``, "info");
         } catch (err: any) {
           ctx.ui.notify(`⚠️ Auto-generate summary note: ${err.message}`, "info");
         }
@@ -1550,7 +1550,7 @@ export default function (pi: ExtensionAPI) {
             confLines.push("", "✅ No outputs flagged for review — confidence is acceptable.");
           }
 
-          ctx.ui.notify(confLines.join("\n"), flagged.length > 0 ? "warning" : "success");
+          ctx.ui.notify(confLines.join("\n"), flagged.length > 0 ? "warning" : "info");
         } else {
           ctx.ui.notify("ℹ No confidence scores recorded this session.", "info");
         }
@@ -1586,7 +1586,7 @@ export default function (pi: ExtensionAPI) {
           );
         }
         if (hasTestRunner && hasTestFiles) {
-          ctx.ui.notify("🧪 TDD check passed: test infrastructure and test files present", "success");
+          ctx.ui.notify("🧪 TDD check passed: test infrastructure and test files present", "info");
         }
       }
 
@@ -1607,7 +1607,7 @@ export default function (pi: ExtensionAPI) {
             const output = qgStdout + qgStderr;
             const passed = code === 0 || output.includes("All checks pass");
             if (passed) {
-              ctx.ui.notify("✅ Auto quality gate PASSED — code quality within thresholds", "success");
+              ctx.ui.notify("✅ Auto quality gate PASSED — code quality within thresholds", "info");
               // Auto-commit on quality gate pass
               if (!autoCommitDone) {
                 try {
@@ -1619,7 +1619,7 @@ export default function (pi: ExtensionAPI) {
                     execSync("git add -A", { cwd: ctx.cwd, stdio: "pipe" });
                     execSync(`git commit -m "feat: ${summary}" -m "${diffStats}"`, { cwd: ctx.cwd, stdio: "pipe" });
                     const hash = execSync("git rev-parse --short HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim();
-                    ctx.ui.notify(`📸 Auto-committed as ${hash} — quality gate passed`, "success");
+                    ctx.ui.notify(`📸 Auto-committed as ${hash} — quality gate passed`, "info");
                     autoCommitDone = true;
                   }
                 } catch (e) { console.error("Workspace: operation failed", e); /* git not available or nothing to commit */ }
@@ -1699,11 +1699,11 @@ export default function (pi: ExtensionAPI) {
           try {
             const mod = await import("./lemonharness-subsystems");
             const wsDir = workspaceManager.getWorkspaceDir();
-            const healer = new mod.ValidationAutoHealer(wsDir);
-            await healer.init();
+            const projectRoot = workspaceManager.getProjectRoot();
+            const healer = new mod.ValidationAutoHealer(projectRoot, wsDir);
             const result = await healer.healLastFailure();
             if (result?.healed) {
-              ctx.ui.notify(`🩺 Auto-heal succeeded${result.retryCommand ? ` — re-run: ${result.retryCommand}` : ""}`, "success");
+              ctx.ui.notify(`🩺 Auto-heal succeeded${result.retryCommand ? ` — re-run: ${result.retryCommand}` : ""}`, "info");
             } else if (result?.escalation) {
               ctx.ui.notify(`🚨 Auto-heal escalated after ${result.attempt} attempts — review required`, "error");
             }
@@ -2031,7 +2031,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const ws = workspaceManager;
-      return new Promise((resolvePromise) => {
+      return new Promise((resolvePromise, rejectPromise) => {
         const timeout = (params.timeout ?? 30) * 1000;
         const child = spawn("bash", ["-c", params.command], { cwd: ws.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
         const timer = setTimeout(() => { child.kill("SIGTERM"); }, timeout);
@@ -2041,13 +2041,16 @@ export default function (pi: ExtensionAPI) {
         child.on("close", (code) => {
           clearTimeout(timer);
           const combined = stdout + stderr;
-          resolvePromise({
-            content: [{ type: "text" as const, text: combined.slice(0, 5000) || "(no output)" }],
-            details: { exitCode: code, stdout: stdout.slice(0, 1000), stderr: stderr.slice(0, 1000) },
-            isError: code !== 0,
-          });
+          if (code !== 0) {
+            rejectPromise(new Error(combined.slice(0, 5000) || `Process exited with code ${code}`));
+          } else {
+            resolvePromise({
+              content: [{ type: "text" as const, text: combined.slice(0, 5000) || "(no output)" }],
+              details: { exitCode: code, stdout: stdout.slice(0, 1000), stderr: stderr.slice(0, 1000) },
+            });
+          }
         });
-        child.on("error", () => { clearTimeout(timer); resolvePromise({ content: [{ type: "text" as const, text: "Process failed to start" }], isError: true, details: {} }); });
+        child.on("error", (err) => { clearTimeout(timer); rejectPromise(new Error("Process failed to start: " + err.message)); });
       });
     },
   });
@@ -2067,7 +2070,7 @@ export default function (pi: ExtensionAPI) {
                   mgr === "pip" ? `pip install ${params.package}` :
                   `sudo apt install -y ${params.package}`;
 
-      return new Promise((resolvePromise) => {
+      return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn("bash", ["-c", cmd], { cwd: ws.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
         const timer = setTimeout(() => { child.kill("SIGTERM"); }, 120_000);
         let stdout = "", stderr = "";
@@ -2076,13 +2079,16 @@ export default function (pi: ExtensionAPI) {
         child.on("close", (code) => {
           clearTimeout(timer);
           ws.trackDependency(params.package);
-          resolvePromise({
-            content: [{ type: "text" as const, text: code === 0 ? `✅ Installed ${params.package} via ${mgr}` : `❌ Failed to install ${params.package}: ${stderr.slice(0, 300)}` }],
-            details: { package: params.package, manager: mgr, exitCode: code },
-            isError: code !== 0,
-          });
+          if (code !== 0) {
+            rejectPromise(new Error(stderr.slice(0, 300) || `Failed to install ${params.package} (exit ${code})`));
+          } else {
+            resolvePromise({
+              content: [{ type: "text" as const, text: `✅ Installed ${params.package} via ${mgr}` }],
+              details: { package: params.package, manager: mgr, exitCode: code },
+            });
+          }
         });
-        child.on("error", () => { clearTimeout(timer); resolvePromise({ content: [{ type: "text" as const, text: "Process failed to start" }], isError: true, details: {} }); });
+        child.on("error", (err) => { clearTimeout(timer); rejectPromise(new Error("Process failed to start: " + err.message)); });
       });
     },
   });
@@ -2097,7 +2103,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const cmd = params.command;
-      return new Promise((resolvePromise) => {
+      return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn("bash", ["-c", cmd], { cwd: workspaceManager.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
         const timer = setTimeout(() => { child.kill("SIGTERM"); }, 60_000);
         let stdout = "", stderr = "";
@@ -2108,13 +2114,16 @@ export default function (pi: ExtensionAPI) {
           const output = stdout + stderr;
           const passed = code === 0;
           executionLogger.logValidation(cmd.slice(0, 60), cmd, passed, output.slice(0, 500));
-          resolvePromise({
-            content: [{ type: "text" as const, text: passed ? `✅ Validation passed\n${output.slice(0, 2000)}` : `❌ Validation failed (exit ${code})\n${output.slice(0, 2000)}` }],
-            details: { command: cmd, exitCode: code, passed, expected: params.expected },
-            isError: !passed,
-          });
+          if (!passed) {
+            rejectPromise(new Error(output.slice(0, 2000) || `Validation failed (exit ${code})`));
+          } else {
+            resolvePromise({
+              content: [{ type: "text" as const, text: `✅ Validation passed\n${output.slice(0, 2000)}` }],
+              details: { command: cmd, exitCode: code, passed, expected: params.expected },
+            });
+          }
         });
-        child.on("error", () => { clearTimeout(timer); resolvePromise({ content: [{ type: "text" as const, text: "Validation process failed to start" }], isError: true, details: {} }); });
+        child.on("error", (err) => { clearTimeout(timer); rejectPromise(new Error("Validation process failed to start: " + err.message)); });
       });
     },
   });
@@ -2211,7 +2220,7 @@ export default function (pi: ExtensionAPI) {
       }
       timeDirector.setBudget(seconds * 1000);
       timeDirector.start();
-      ctx.ui.notify(`🍋 Time budget set to ${formatDuration(seconds * 1000)}`, "success");
+      ctx.ui.notify(`🍋 Time budget set to ${formatDuration(seconds * 1000)}`, "info");
     },
   });
 
@@ -2221,7 +2230,7 @@ export default function (pi: ExtensionAPI) {
       workspaceManager.reset();
       timeDirector.start();
       executionLogger.getExecutionTrail().length = 0;
-      ctx.ui.notify("🍋 Workspace and time tracking reset", "success");
+      ctx.ui.notify("🍋 Workspace and time tracking reset", "info");
     },
   });
 
@@ -2251,7 +2260,7 @@ export default function (pi: ExtensionAPI) {
           const output = stdout + stderr;
           const passed = code === 0;
           executionLogger.logValidation(cmd.slice(0, 60), cmd, passed, output.slice(0, 500));
-          ctx.ui.notify(passed ? `✅ Validation passed\n${output.slice(0, 1000)}` : `❌ Validation failed (exit ${code})\n${output.slice(0, 1000)}`, passed ? "success" : "error");
+          ctx.ui.notify(passed ? `✅ Validation passed\n${output.slice(0, 1000)}` : `❌ Validation failed (exit ${code})\n${output.slice(0, 1000)}`, passed ? "info" : "error");
         });
       } catch (e: any) { ctx.ui.notify(`❌ Validation error: ${e.message}`, "error"); }
     },
@@ -2459,7 +2468,7 @@ export default function (pi: ExtensionAPI) {
         const meta = await snapshotManager.createSnapshot(snapshotId, desc, changedFiles);
         ctx.ui.notify(
           `📸 Snapshot created: ${snapshotId}\n   ${desc}\n   ${meta.files.length} file(s) captured`,
-          "success",
+          "info",
         );
       } catch (e: any) {
         ctx.ui.notify(`❌ Failed to create snapshot: ${e.message}`, "error");
@@ -2525,7 +2534,7 @@ export default function (pi: ExtensionAPI) {
             lines.push(`     ✗ ${e}`);
           }
         }
-        ctx.ui.notify(lines.join("\n"), result.errors.length === 0 ? "success" : "warning");
+        ctx.ui.notify(lines.join("\n"), result.errors.length === 0 ? "info" : "warning");
       } catch (e: any) {
         ctx.ui.notify(`❌ Rollback failed: ${e.message}`, "error");
       }
@@ -2580,7 +2589,7 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (inputs.length > 0 || outputs.length > 0) {
-          const contract: mod.SkillContract = { name: skillName, inputs, outputs, preconditions, postconditions, errorHandling };
+          const contract = { name: skillName, inputs, outputs, preconditions, postconditions, errorHandling };
           const result = verifier.verifyContract(contract, skillContent);
           const pseudocodeOnly = pseudocodeBlock.replace("## Pseudocode\n\n", "").trim();
           output = `🍋 Loaded skill: ${skillName}\n\n${pseudocodeOnly}\n\n${verifier.formatResult(result)}`;

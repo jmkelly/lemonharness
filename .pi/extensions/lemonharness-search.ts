@@ -88,7 +88,7 @@ export default function (pi: ExtensionAPI) {
       const maxResults = Math.min(params.max_results || 5, 10);
 
       // Run search
-      return new Promise((resolvePromise) => {
+      return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn(PYTHON_VENV, [
           scriptPath,
           flag,
@@ -138,11 +138,7 @@ export default function (pi: ExtensionAPI) {
         });
 
         child.on("error", (err) => {
-          resolvePromise({
-            content: [{ type: "text" as const, text: `Search failed: ${err.message}` }],
-            isError: true,
-            details: {},
-          });
+          rejectPromise(new Error(`Search failed: ${err.message}`));
         });
       });
     },

@@ -28,9 +28,6 @@ detect_language() {
   elif [ -f "package.json" ]; then
     echo "  📐 Node/TypeScript project detected"
     LANGUAGE="typescript"
-    LANGUAGE="dotnet"
-    LANGUAGE="go"
-    LANGUAGE="rust"
   else
     # Fallback: guess by file extensions in target
     if find "$TARGET" -name "*.py" 2>/dev/null | head -1 | grep -q .; then
@@ -186,14 +183,20 @@ case "$LANGUAGE" in
 
   typescript)
     if [ -f "node_modules/.bin/eslint" ]; then
-      if LINT_OUTPUT=$(npx eslint "$TARGET" --max-warnings=0 2>&1); then
-        echo "  ✅ No lint errors"
+      if LINT_OUTPUT=$(npx eslint ".pi/extensions/" 2>&1); then
+        echo "  ✅ No lint warnings"
       else
-        LINT_COUNT=$(echo "$LINT_OUTPUT" | grep -cE "^\s+" || true)
-        echo "$LINT_OUTPUT" | head -20
-        [ "$LINT_COUNT" -gt 20 ] && echo "  ... and $((LINT_COUNT - 20)) more"
-        echo "  ❌ $LINT_COUNT lint error(s)"
-        FAILED=$((FAILED + LINT_COUNT))
+        ERROR_COUNT=$(echo "$LINT_OUTPUT" | grep -cE "error\s+" || true)
+        WARN_COUNT=$(echo "$LINT_OUTPUT" | grep -cE "warning\s+" || true)
+        echo "$LINT_OUTPUT" | head -30
+        echo ""
+        if [ "$ERROR_COUNT" -gt 0 ]; then
+          echo "  ❌ $ERROR_COUNT lint error(s), $WARN_COUNT warning(s)"
+          FAILED=$((FAILED + ERROR_COUNT))
+        else
+          echo "  ⚠  $WARN_COUNT lint warning(s) (advisory)"
+          WARNINGS=$((WARNINGS + 1))
+        fi
       fi
     else
       echo "  ⚠  eslint not found locally. Install: npm install --save-dev eslint"

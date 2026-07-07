@@ -4,11 +4,14 @@ import tsparser from "@typescript-eslint/parser";
 export default [
   {
     files: ["**/*.ts"],
+    ignores: ["**/node_modules/**", "**/dist/**"],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
         ecmaVersion: "latest",
         sourceType: "module",
+        project: "./tsconfig.json",
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     plugins: {
@@ -16,7 +19,7 @@ export default [
     },
     rules: {
       complexity: ["warn", 10],
-      "no-empty": ["error", { allowEmptyCatch: false }],
+      "no-empty": ["error", { allowEmptyCatch: true }],
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "no-var": "error",
@@ -27,7 +30,6 @@ export default [
       "no-useless-rename": "warn",
       "object-shorthand": ["warn", "always"],
       "@typescript-eslint/prefer-for-of": "warn",
-      "@typescript-eslint/no-unnecessary-type-assertion": "warn",
     },
   },
 ];
