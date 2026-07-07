@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import type { SkillContract } from "../.pi/extensions/lemonharness/subsystems-core";
 
 // ── DependencyGraph Tests ──────────────────────────────────────
 
@@ -167,9 +168,9 @@ describe("HealthChecker", () => {
   it("should register checks and get status (runChecks returns void)", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const checker = new mod.HealthChecker();
-    checker.registerCheck("always_pass", () => ({ healthy: true, message: "OK" }), 1);
+    checker.registerCheck("always_pass", 1, () => ({ healthy: true, message: "OK" }));
     // runChecks returns void — check via getStatus()
-    checker.runChecks({ currentPhase: "explore", isErrored: false, phasesCompleted: [] });
+    checker.runChecks({ currentPhase: "explore", totalErrors: 0 });
     const status = checker.getStatus();
     expect(typeof status).toBe("string");
   });
@@ -177,9 +178,9 @@ describe("HealthChecker", () => {
   it("should detect unhealthy states via alerts", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const checker = new mod.HealthChecker();
-    checker.registerCheck("fail_check", () => ({ healthy: false, message: "FAILED" }), 1);
-    checker.registerCheck("pass_check", () => ({ healthy: true, message: "OK" }), 1);
-    checker.runChecks({ currentPhase: "implement", isErrored: true, phasesCompleted: [] });
+    checker.registerCheck("fail_check", 1, () => ({ healthy: false, message: "FAILED" }));
+    checker.registerCheck("pass_check", 1, () => ({ healthy: true, message: "OK" }));
+    checker.runChecks({ currentPhase: "implement", totalErrors: 1 });
     const alerts = checker.getAlerts();
     expect(alerts).toBeDefined();
   });
@@ -283,7 +284,7 @@ describe("SaPVerifier", () => {
   it("should verify a valid contract (coverage >= 30% of terms)", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const verifier = new mod.SaPVerifier();
-    const contract: mod.SkillContract = {
+    const contract: SkillContract = {
       name: "test-skill",
       inputs: [{ name: "inputFile", type: "string", description: "Input file path", required: true }],
       outputs: [{ name: "result", type: "string", description: "Output" }],
@@ -300,7 +301,7 @@ describe("SaPVerifier", () => {
   it("should detect binding issues (missing types)", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const verifier = new mod.SaPVerifier();
-    const contract: mod.SkillContract = {
+    const contract: SkillContract = {
       name: "bad-skill",
       inputs: [{ name: "inputFile", type: "", description: "No type", required: true }],
       outputs: [],
@@ -314,7 +315,7 @@ describe("SaPVerifier", () => {
   it("should format verification results", async () => {
     const mod = await import("../.pi/extensions/lemonharness/subsystems-core");
     const verifier = new mod.SaPVerifier();
-    const contract: mod.SkillContract = { name: "format-test", inputs: [], outputs: [], preconditions: [], postconditions: [], errorHandling: [] };
+    const contract: SkillContract = { name: "format-test", inputs: [], outputs: [], preconditions: [], postconditions: [], errorHandling: [] };
     expect(verifier.formatResult(verifier.verifyContract(contract, "content"))).toContain("format-test");
   });
 });
