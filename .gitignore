@@ -21,3 +21,13 @@ __pycache__/
 .lemonharness/delegates/*/summary.txt
 .lemonharness/delegates/*/messages.json
 .lemonharness/delegates/*/files.json
+
+# Compiled output
+dist/
+
+# Auto-generated execution reports
+.lemonharness/execution-report.html
+.lemonharness/delegates/
+
+# Auto-generated extension backups
+.pi/extensions-backup-*/

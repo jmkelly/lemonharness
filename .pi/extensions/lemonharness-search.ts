@@ -55,11 +55,12 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const projectRoot = _ctx.cwd;
       // Validate search script exists
-      const scriptPath = join(process.cwd(), SEARCH_SCRIPT);
+      const scriptPath = join(projectRoot, SEARCH_SCRIPT);
       if (!existsSync(scriptPath)) {
         return {
-          content: [{ type: "text" as const, text: `Error: Search script not found at ${SEARCH_SCRIPT}` }],
+          content: [{ type: "text" as const, text: `Error: Search script not found at ${scriptPath}` }],
           isError: true,
           details: {},
         };
@@ -95,7 +96,7 @@ export default function (pi: ExtensionAPI) {
           "--max-results",
           String(maxResults),
         ].filter(Boolean), {
-          cwd: process.cwd(),
+          cwd: projectRoot,
           stdio: ["pipe", "pipe", "pipe"],
         });
 
@@ -169,11 +170,11 @@ export default function (pi: ExtensionAPI) {
 
       ctx.ui.notify(`🔍 Searching ${source} for: ${query}...`, "info");
 
-      const scriptPath = join(process.cwd(), SEARCH_SCRIPT);
+      const scriptPath = join(ctx.cwd, SEARCH_SCRIPT);
       const flag = source === "arxiv" ? "--arxiv" : source === "recent" ? "--recent" : "--web";
 
       const child = spawn(PYTHON_VENV, [scriptPath, flag, query], {
-        cwd: process.cwd(),
+        cwd: ctx.cwd,
         stdio: ["pipe", "pipe", "pipe"],
       });
 

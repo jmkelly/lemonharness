@@ -519,7 +519,7 @@ export async function buildSummaryFromLiveDataExternal(
   workspaceManager: import("./lemonharness-workspace").WorkspaceManager,
   timeDirector: import("./lemonharness-workspace").TimeDirector,
   executionLogger: import("./lemonharness-workspace").ExecutionLogger,
-  ctx: any,
+  ctx: { sessionManager?: { getSessionFile?: () => string } },
   taskDescription: string,
 ): Promise<string> {
   return buildSummaryFromSingletons(
@@ -530,6 +530,7 @@ export async function buildSummaryFromLiveDataExternal(
 /**
  * Core implementation that takes singletons directly.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildSummaryFromSingletons(
   summary: SessionSummary,
   workspaceManager: import("./lemonharness-workspace").WorkspaceManager,

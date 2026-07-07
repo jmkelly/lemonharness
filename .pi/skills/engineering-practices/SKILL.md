@@ -1,388 +1,51 @@
 ---
 name: engineering-practices
 description: >
-  Senior-level software engineering guardrails: TDD, KISS, YAGNI, DRY, domain-driven
-  design, concise code, complexity reduction, and measurable quality thresholds.
-  Always loaded as a base skill for every task alongside general-rules.
+  Concise engineering guardrails: TDD, simplicity, complexity control, quality gates.
+  Always loaded as a base skill.
 ---
 
-# Engineering Practices — Guardrails
+# Engineering Practices (Condensed)
 
-## Core Philosophy
+## Core: Simplicity First
+> *"Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away."*
 
-> *"Perfection is achieved not when there is nothing more to add,
-> but when there is nothing left to take away."* — Antoine de Saint-Exupéry
+Every line is a liability. Write the simplest thing, then make it smaller. Apply KISS, YAGNI, DRY.
 
-Every line of code is a liability. The best code is the code you don't write.
-When you do write, write the simplest thing that works. Then make it smaller.
+## Rule 1: TDD — Red → Green → Refactor
+1. **Red**: Write a failing test first (define "done").
+2. **Green**: Simplest code that passes. No more.
+3. **Refactor**: Improve while keeping tests green.
 
----
+Automated enforcement: P2 entry checks for test runner & test files. P3 quality gate blocks if tests fail.
 
-## Rule 1: TDD (Test-Driven Development)
+## Rule 2: Simplicity (KISS, YAGNI)
+- Solve today's problem. Don't anticipate unknown futures.
+- If you can't write a test for it, don't write it.
+- Max 3 levels of indentation. Extract methods beyond that.
 
-**Red → Green → Refactor.** Always.
+## Rule 3: Complexity Control
+- Max **400 lines** per file. Split at 300 lines proactively.
+- Max **10 lines** per function body.
+- Max **3 parameters** per function (use object params beyond that).
+- Avoid ternaries longer than one line.
+- No `any` type in TypeScript (prefer `unknown`).
 
-1. **Red** — Write a failing test first. This forces you to define what "done"
-   means before you write the implementation.
-2. **Green** — Write the simplest code that passes the test. No more.
-3. **Refactor** — Improve the code while keeping tests green.
+## Rule 4: Consistency & Naming
+- Files: `kebab-case.ts`. Types/interfaces: `PascalCase`. Everything else: `camelCase`.
+- One component/export per file. Group related files in directories.
+- Booleans: prefix with `is`, `has`, `should`, `can`.
 
-**Why:** Tests are not a luxury — they are the specification. If you can't
-write a test for it, you don't understand what it should do.
+## Rule 5: Dependencies
+- Re-evaluate at each use. Remove unused imports.
+- Prefer native APIs over libraries.
 
-**Check:** Before writing any implementation function, ask: *"What test would
-prove this works?"* If you can't answer, don't write the function yet.
+## Rule 6: Error Handling
+- Never swallow errors. Every `catch` must log, recover, or re-throw.
+- Use Result types for recoverable failures.
+- Fail fast on invariant violations.
 
-### Automated Enforcement (LemonHarness Guardrails)
+## Rule 7: Pre-Acceptance Gate
+Before declaring any task complete: file size ≤ 400 lines, no dead code/debug prints/TODO markers, code compiles, no excessive nesting.
 
-TDD is now **structurally enforced** by the following guardrails:
-
-| Trigger | Guardrail | Consequence |
-|---|---|---|
-| **P2 entry** (Implement phase) | Workspace extension checks for test runner (`vitest`) and test files (`tests/*.test.*`) | Warning if missing; blocks P3 unless resolved |
-| **P3 entry** (Validate phase) | Quality gate (`quality-gate.sh`) checks for: (1) test file existence, (2) test runner installed, (3) all tests pass | ❌ **FAIL** if no test files found or tests fail |
-| **`npm test`** | `pretest` hook checks `tests/` directory exists | ❌ Exits with error if no test dir |
-
-The cycle is:
-```
-P1 Explore → [TDD check on Implement entry] → P2 Implement (with tests first)
-  → P3 Validate (quality gate runs tests) → P4 Reserve
-```
-
-**Before writing any implementation code, you MUST:**
-1. ✓ Have `vitest` installed (`npm install --save-dev vitest`)
-2. ✓ Have at least one test file in `tests/` (can be a failing test — that's the Red phase)
-3. ✓ Run `npm test` to verify the test framework works
-
-If you skip these steps, the quality gate will **fail** and prevent progress to P4 (Reserve).
-
-### Test Philosophy: Prefer Real Implementations Over Mocks
-
-**Tests should use real implementations or lightweight fakes, not mocks.**
-
-| Approach | Definition | When to Use |
-|---|---|---|
-| **Real implementation** | The actual production class instantiated directly | Always the default — test the code as it runs in production |
-| **Fake** | A lightweight but real implementation of an interface (e.g., an in-memory store instead of a database) | When the real implementation has side effects (I/O, network, filesystem) that make tests slow or non-deterministic |
-| **Mock / spy** | An object that records calls and returns canned responses (`vi.fn()`, `vi.spyOn()`) | **Last resort** — only when fakes are impractical. Never use mocks to verify internal implementation details |
-
-**Why:** Mocks couple tests to implementation details. A mocked test passes even if the real code is fundamentally broken, because it tests the mock's wiring, not the code's behavior. Real implementations and fakes test actual logic.
-
-**Examples:**
-- ✅ Test `TimeDirector` by instantiating it directly and calling its methods
-- ✅ Test `ExecutionLogger` by creating real log entries and reading them back
-- ✅ Create a plain-object fake of the pi API (a real object with the same shape) instead of `vi.fn()`
-- ❌ Avoid `vi.fn()` / `vi.spyOn()` / `vi.mock()` unless there is no practical alternative
-
-**Check before adding a mock:** *"Can I write this test with the real class or a plain-object fake?"* If yes, do that instead.
-
----
-
-## Rule 2: KISS — Keep It Simple, Stupid
-
-**The simplest solution is almost always the best.**
-
-- One function = one responsibility. If a function does two things, split it.
-- Prefer flat over nested. If you have 3+ levels of indentation, restructure.
-- Favor standard library over external dependencies. A builtin is better than
-  a package is better than a framework.
-- Configuration over code. Can you make it a data structure instead of logic?
-
-**Warning signs:**
-- ✗ A function that needs a comment to explain what it does → rename it
-- ✗ More than 2 levels of abstraction in one function → split it
-- ✗ A class with a single method → it should be a function
-- ✗ Inheritance deeper than 2 levels → you've over-engineered
-
----
-
-## Rule 3: YAGNI — You Ain't Gonna Need It
-
-**Never add code "just in case" you might need it later.**
-
-- If it's not required by the current task, don't write it.
-- "Future-proofing" without a concrete future requirement is speculation.
-- Abstract only when you have **two** concrete examples, not one.
-- Generics, factories, and patterns are solutions to problems you **have**,
-  not problems you **might** have.
-
-**Ask:** *"Will removing this code break the tests?"* If no, remove it.
-
----
-
-## Rule 4: DRY — Don't Repeat Yourself
-
-**Every piece of knowledge must have a single, unambiguous representation.**
-
-- Duplicated code → extract into a function or module.
-- Duplicated data structure → define it once and reference it.
-- Duplicated configuration → use constants or config files.
-- Duplicated logic across modules → build a shared abstraction.
-
-**But:** Prefer duplication over the wrong abstraction. It's better to
-have two similar functions than one over-generalized one. Wait until
-you see the pattern three times before abstracting (Rule of Three).
-
----
-
-## Rule 5: Reduce Complexity at Every Opportunity
-
-**Complexity is the enemy of correctness, maintainability, and velocity.**
-
-| Measure | Target | Warning | Failure |
-|---|---|---|---|
-| Cyclomatic complexity per function | ≤ 5 | 6–10 | > 10 |
-| Lines per function | ≤ 15 | 16–30 | > 30 |
-| Lines per file | ≤ 200 | 200–400 | > 400 |
-| Nesting depth | ≤ 2 | 3 | > 3 |
-| Function parameters | ≤ 3 | 4 | > 5 |
-| Class public methods | ≤ 7 | 8–12 | > 12 |
-
-**Techniques to reduce complexity:**
-- Extract conditionals into named boolean variables
-- Replace switch/if chains with lookup tables or polymorphism
-- Use early returns to flatten nesting
-- Split long functions at natural boundaries
-- Prefer composition over inheritance
-
----
-
-## Rule 6: Domain-Driven Design (DDD) Light
-
-**Name things after the problem domain, not the implementation.**
-
-- Variables, functions, and classes should speak the language of the business
-  or scientific domain, not programming constructs.
-- A function called `calculateRiskScore()` is better than `processData()`.
-- A class called `ProteinSequence` is better than `SequenceHandler`.
-- Keep the domain layer free of infrastructure concerns (I/O, formatting, DB).
-
-**Bounded contexts:** If two parts of the system use the same word to mean
-different things, they are different bounded contexts. Give them separate
-namespaces.
-
----
-
-## Rule 7: Be Concise — Say It Once, Say It Small
-
-**Every file, function, and comment should earn its keep.**
-
-- Remove dead code. If it's commented out, delete it.
-- Remove debug prints before committing.
-- Prefer expressive names over comments. A name like `isEligibleForDiscount()`
-  is better than `# check if discount applies`.
-- If a comment explains *what* the code does, the code needs renaming.
-- If a comment explains *why* the code is unusual, that's good — keep it.
-
-**The 5-line rule:** If a function body fits in 5 lines or fewer, it's
-probably right. If it's over 30 lines, it's doing too much.
-
----
-
-## Rule 8: Do the Simplest Thing That Works
-
-**Start with the most naive correct solution. Optimize only when measured.**
-
-1. Write the simplest version that passes the tests.
-2. Profile or measure to find real bottlenecks.
-3. Optimize only the bottleneck, and only when the data proves it matters.
-
-**Never:**
-- ✗ Add caching before you measure a cache miss
-- ✗ Add a thread pool before you have a contention problem
-- ✗ Use a complex algorithm when a linear scan is fast enough for the data size
-
----
-
-## Rule 9: Validate Assumptions with Metrics
-
-**Before declaring "done", run the checks.**
-
-Always run the quality gate at the start of the **Validate** phase.
-It auto-detects your project language (Python, TypeScript, .NET, etc.)
-and runs the appropriate checks:
-
-```bash
-# Auto-detect and run everything (recommended)
-workspace_validate command="bash .lemonharness/quality-gate.sh" expected="All checks pass"
-```
-
-Or run language-specific checks directly:
-
-```bash
-# ── Python ──
-pip install flake8 radon xenon pytest pytest-cov
-flake8 src/ --max-complexity=10 --max-line-length=100
-radon cc src/ --min C            # cyclomatic complexity per function
-radon mi src/ --min B            # maintainability index
-pytest tests/ --cov=src/ --cov-fail-under=70
-
-# ── TypeScript / JavaScript ──
-npx eslint src/ --max-warnings=0 --rule 'complexity/max-complexity: ["warn", 10]'
-npx tsc --noEmit                 # type checking
-npx jest --coverage --coverageThreshold='{"global":{"lines":70}}'
-
-# ── .NET (C#) ──
-dotnet format --verify-no-changes  # code style
-dotnet build -warnaserror           # catches complexity warnings
-dotnet test --collect:"XPlat Code Coverage" --results-directory:TestResults
-
-# ── General (all languages) ──
-find src/ -name "*.py" -o -name "*.ts" -o -name "*.cs" | xargs wc -l | sort -n | tail -5
-```
-
-These checks are not optional. Run them before declaring a task complete.
-
-See [code-metrics](references/code-metrics.md) for detailed tool setup,
-threshold tables, and quality gate configuration.
-
----
-
-## Rule 10: Prefer Proven Patterns Over Invented Ones
-
-**Use established design patterns, but don't force them.**
-
-- Favor the standard library's built-in solutions first.
-- If you need structure, reach for well-known patterns (Strategy, Observer,
-  Factory, Repository) before inventing your own.
-- But: patterns are tools, not goals. If a pattern makes code harder to
-  understand, don't use it.
-
----
-
-## Rule 11: Ownership & Hygiene
-
-**Leave the codebase cleaner than you found it.**
-
-- If you touch a file, leave it slightly better — fix a naming issue, remove
-  a dead comment, consolidate a duplicated constant.
-- If a function is tested, keep it tested. Don't comment out tests.
-- If you find a bug in code you didn't write, fix it. Don't add a workaround.
-
----
-
-## Rule 12: Commit Hygiene — Conventional Commits + Atomicity
-
-**Every commit should be a single, coherent, atomic change with a
-structured message.**
-
-### 12.1 Format: Conventional Commits
-
-Use the [Conventional Commits](https://www.conventionalcommits.org/) format:
-
-```
-<type>(<scope>): <imperative description>
-
-<body (optional)>
-
-<footer (optional)>
-```
-
-**Type** describes the nature of the change:
-
-| Type       | When to use                                |
-|------------|--------------------------------------------|
-| `feat`     | New feature                                |
-| `fix`      | Bug fix                                    |
-| `refactor` | Code change that neither adds nor fixes    |
-| `docs`     | Documentation only                         |
-| `test`     | Adding or improving tests                  |
-| `chore`    | Build, deps, tooling, config               |
-| `perf`     | Performance improvement                    |
-| `style`    | Formatting, whitespace (no logic change)   |
-| `ci`       | CI pipeline changes                        |
-
-**Scope** (optional) — the subsystem or module affected, e.g.,
-`memory`, `workspace`, `search`, `quality-gate`, `skill`, `ui`.
-
-**Description** — imperative mood, lowercase, no trailing period.
-Complete the sentence "This commit will..."
-(e.g., `feat(search): add arXiv and Semantic Scholar support`).
-
-**Breaking changes** — append `!` after type/scope, e.g.,
-`refactor(memory)!: remove deprecated TF-IDF retrieval`.
-
-**Examples:**
-```
-feat(workspace): add quality gate auto-trigger on P3 entry
-fix(memory): correct decay calculation for zero-confidence events
-refactor(search): extract URL builder into shared utility
-docs(skill): add conventional commits examples to engineering-practices
-test(harness): add coverage for phase checkpoint edge cases
-chore(deps): upgrade axios to 1.7.0
-```
-
-### 12.2 Atomic Commits
-
-- Group files by logical concern, not by chronology. A commit with
-  message `feat(search): add arXiv support` should include all and
-  only the files needed for that feature.
-- Keep commits small enough to review in one pass. If a commit touches
-  10+ unrelated files, it should be split.
-- Separate mechanical changes (refactoring, renames, formatting) from
-  behavioral changes (new features, bug fixes) into different commits.
-
-### 12.3 Pre-Commit Checklist
-
-Before creating a commit, verify:
-1. ✓ Message follows `<type>(<scope>): <description>` format
-2. ✓ Description completes "This commit will..."
-3. ✓ Commit contains exactly one logical change
-4. ✓ A reviewer would understand what changed and why from the message alone
-
-**Proactive check:** When starting work that spans multiple independent
-concerns, plan the commit boundaries first. Don't wait for someone to
-ask "can you split this up?" — anticipate it.
-
-**Anti-patterns:**
-- ⚠ The "WIP" or "misc changes" commit — if you can't summarize it in
-  one sentence, the commit is too large.
-- ⚠ `feat(feat):` or other redundant type/scope — don't repeat the type
-  as scope.
-
----
-
-## Usage
-
-This skill is automatically loaded as a base skill for every task (alongside
-`general-rules`). Its rules apply regardless of domain.
-
-See [code-metrics](references/code-metrics.md) for detailed measurement
-procedures and tool setup.
-
----
-
-## Pseudocode
-
-```
-SKILL engineering-practices
-
-INPUTS:
-  taskType: string          // Type of engineering task (implement, refactor, test)
-  language: string          // Primary language (python, typescript, csharp)
-  projectType: string       // Library, CLI, web, service
-
-OUTPUTS:
-  qualityReport: object     // // Contains pass/fail for each check
-  //   tdd_compliant: bool
-  //   complexity_ok: bool
-  //   conciseness_ok: bool
-
-PRECONDITIONS:
-  - Task must have defined acceptance criteria before implementation
-  - Tests must be writable before production code
-  - Quality thresholds must be defined per project
-
-POSTCONDITIONS:
-  - No function exceeds cyclomatic complexity of 10
-  - No file exceeds 400 lines
-  - All tests pass before task completion
-  - Dead code is removed
-  - Commits follow `<type>(<scope>): <description>` format and are atomic
-    (one logical change per commit)
-
-ERROR_HANDLING:
-  - If complexity exceeds 10 -> refactor before proceeding
-  - If coverage drops below 70% -> add missing tests
-  - If file exceeds 400 lines -> split into modules
-```
+Full reference: `.pi/skills/engineering-practices/reference.md`

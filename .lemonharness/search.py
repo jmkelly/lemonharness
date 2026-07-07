@@ -78,7 +78,7 @@ def search_arxiv(query: str, max_results: int = 8, year_from: int | None = None)
 
     try:
         resp = requests.get(
-            "http://export.arxiv.org/api/query",
+            "https://export.arxiv.org/api/query",
             params=params,
             timeout=15,
             headers={"User-Agent": "LemonHarness/1.0 (research-citation-tool)"},

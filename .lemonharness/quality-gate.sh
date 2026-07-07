@@ -28,14 +28,8 @@ detect_language() {
   elif [ -f "package.json" ]; then
     echo "  📐 Node/TypeScript project detected"
     LANGUAGE="typescript"
-  elif ls *.csproj 2>/dev/null | head -1 | grep -q . || ls *.sln 2>/dev/null | head -1 | grep -q .; then
-    echo "  📐 .NET project detected"
     LANGUAGE="dotnet"
-  elif [ -f "go.mod" ]; then
-    echo "  📐 Go project detected"
     LANGUAGE="go"
-  elif [ -f "Cargo.toml" ]; then
-    echo "  📐 Rust project detected"
     LANGUAGE="rust"
   else
     # Fallback: guess by file extensions in target
@@ -65,7 +59,7 @@ if [ -d "$TARGET" ]; then
   case "$LANGUAGE" in
     python)     EXTENSIONS="-name *.py" ;;
     typescript) EXTENSIONS="-name *.ts -o -name *.tsx -o -name *.js" ;;
-    dotnet)     EXTENSIONS="-name *.cs -o -name *.cshtml" ;;
+    # .NET checks removed (not used in this project)
     go)         EXTENSIONS="-name *.go" ;;
     rust)       EXTENSIONS="-name *.rs" ;;
     *)          EXTENSIONS="-name *.py -o -name *.ts -o -name *.tsx -o -name *.js -o -name *.cs -o -name *.go -o -name *.rs" ;;
@@ -153,32 +147,7 @@ case "$LANGUAGE" in
     fi
     ;;
 
-  dotnet)
-    if command -v dotnet &>/dev/null; then
-      echo "  Checking .NET code metrics with built-in analyzers..."
-      # Use dotnet build with warnings-as-errors for analyzer rules
-      # The CA1502 (complexity) and CA1505 (maintainability) rules are in Microsoft.CodeAnalysis.NetAnalyzers
-      if DOTNET_OUTPUT=$(dotnet build --no-restore -warnaserror 2>&1 || true); then
-        echo "  ✅ Build succeeded with no warnings-as-errors"
-      else
-        # Count complexity-related warnings
-        CX_COUNT=$(echo "$DOTNET_OUTPUT" | grep -cE "CA1502|CA1505|CA1506" || true)
-        if [ "$CX_COUNT" -gt 0 ]; then
-          echo "$DOTNET_OUTPUT" | grep -E "CA1502|CA1505|CA1506" | head -10
-          echo "  ❌ $CX_COUNT complexity/maintainability warning(s)"
-          FAILED=$((FAILED + CX_COUNT))
-        fi
-      fi
-      # Alternative: check if dotnet-codelyzer is installed
-      if command -v dotnet-codelyzer &>/dev/null; then
-        echo "  Also checking with dotnet-codelyzer..."
-        dotnet-codelyzer "$TARGET" 2>/dev/null || true
-      fi
-    else
-      echo "  ⚠  dotnet SDK not found"
-      WARNINGS=$((WARNINGS + 1))
-    fi
-    ;;
+  # .NET checks removed (not used in this project)
 
   *)
     echo "  ℹ  Complexity check not available for detected language"
@@ -233,20 +202,8 @@ case "$LANGUAGE" in
     ;;
 
   dotnet)
-    if command -v dotnet &>/dev/null; then
-      if DOTNET_OUTPUT=$(dotnet format --verify-no-changes 2>&1); then
-        echo "  ✅ No code style issues"
-      else
-        echo "$DOTNET_OUTPUT" | head -20
-        FORMAT_COUNT=$(echo "$DOTNET_OUTPUT" | grep -c "error" || true)
-        echo "  ❌ Code style issues found"
-        FAILED=$((FAILED + 1))
-      fi
-    else
-      echo "  ⚠  dotnet SDK not found"
-      WARNINGS=$((WARNINGS + 1))
-    fi
-    ;;
+      echo "  ℹ  .NET checks not applicable to this project"
+      ;;
 
   *)
     echo "  ℹ  Lint check not available for detected language"
@@ -319,34 +276,8 @@ case "$LANGUAGE" in
     ;;
 
   dotnet)
-    if command -v dotnet &>/dev/null; then
-      # Find test projects
-      TEST_PROJECTS=$(find . -name "*Test*.csproj" -o -name "*Tests*.csproj" 2>/dev/null | head -5)
-      if [ -n "$TEST_PROJECTS" ]; then
-        if DOTNET_TEST=$(dotnet test --collect:"XPlat Code Coverage" --results-directory:TestResults --no-restore 2>&1); then
-          echo "$DOTNET_TEST" | tail -5
-          echo "  ✅ .NET tests pass"
-          # Try to report coverage if reportgenerator is available
-          if command -v reportgenerator &>/dev/null; then
-            COV_FILE=$(find TestResults -name "coverage.cobertura.xml" 2>/dev/null | head -1)
-            if [ -n "$COV_FILE" ]; then
-              reportgenerator "-reports:$COV_FILE" "-targetdir:TestResults/report" "-reporttypes:TextSummary" 2>/dev/null
-              cat TestResults/report/Summary.txt 2>/dev/null | head -10
-            fi
-          fi
-        else
-          echo "$DOTNET_TEST" | tail -15
-          echo "  ❌ .NET test failures"
-          FAILED=$((FAILED + 1))
-        fi
-      else
-        echo "  ⚠  No test projects found (*Test*.csproj)"
-      fi
-    else
-      echo "  ⚠  dotnet SDK not found"
-      WARNINGS=$((WARNINGS + 1))
-    fi
-    ;;
+      echo "  ℹ  .NET checks not applicable to this project"
+      ;;
 
   *)
     echo "  ℹ  Test run not available for detected language"

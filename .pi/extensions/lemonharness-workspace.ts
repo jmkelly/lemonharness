@@ -202,6 +202,52 @@ export interface PhaseCheckpoint {
   decisionAdvantage: number;
 }
 
+// ── v4: FormatGuard — Detect format-constrained tasks ────────────
+// Detects tasks with strict formatting requirements and suppresses
+// non-essential context to avoid violating format constraints.
+
+export class FormatGuard {
+  private constraintPatterns = [
+    { pattern: /EXACTLY\s+\d+\s+words/i, type: "word_count" as const },
+    { pattern: /Output ONLY the/i, type: "strict_output" as const },
+    { pattern: /Output ONLY your final/i, type: "strict_output" as const },
+    { pattern: /Report ONLY the final/i, type: "strict_output" as const },
+    { pattern: /Answer as a single letter/i, type: "single_letter" as const },
+    { pattern: /Answer: just the number/i, type: "single_value" as const },
+    { pattern: /Answer: just the email/i, type: "single_value" as const },
+    { pattern: /Do NOT use the word/i, type: "negative_constraint" as const },
+    { pattern: /Do NOT list more than/i, type: "negative_constraint" as const },
+    { pattern: /Output ONLY the JSON/i, type: "json_only" as const },
+    { pattern: /Output only the code/i, type: "code_only" as const },
+  ];
+
+  detected: Set<string> = new Set();
+
+  scan(prompt: string): void {
+    this.detected.clear();
+    for (const { pattern, type } of this.constraintPatterns) {
+      if (pattern.test(prompt)) this.detected.add(type);
+    }
+  }
+
+  get isConstrained(): boolean {
+    return this.detected.size > 0 && !this.detected.has("single_letter");
+  }
+
+  get suppressExtras(): boolean {
+    // Suppress trail, heuristics, memory for word_count, strict_output, json_only
+    return this.detected.has("word_count") || this.detected.has("strict_output") ||
+           this.detected.has("json_only") || this.detected.has("code_only");
+  }
+
+  formatNote(): string {
+    if (this.detected.size === 0) return "";
+    return `⚠️ Format constraint detected: ${[...this.detected].join(", ")}. Keep response brief and precise.`;
+  }
+}
+
+export const formatGuard = new FormatGuard();
+
 // ─────────────────────────────────────────────────────────────────────────
 // Workspace Manager — Singleton
 // ─────────────────────────────────────────────────────────────────────────
@@ -987,7 +1033,7 @@ export class SnapshotManager {
       }
       snapshots.sort((a, b) => b.timestamp - a.timestamp);
       return snapshots;
-    } catch {
+    } catch (e) { console.error("Workspace: operation failed", e);
       return [];
     }
   }
@@ -1000,7 +1046,7 @@ export class SnapshotManager {
     try {
       const content = await readFile(metaPath, "utf-8");
       return JSON.parse(content);
-    } catch {
+    } catch (e) { console.error("Workspace: operation failed", e);
       return null;
     }
   }
@@ -1091,7 +1137,7 @@ class RuleKnowledgeManager {
           this.skills.push({ name: entry.name, description, path: skillPath });
         }
       }
-    } catch { /* Skills directory may not exist yet */ }
+    } catch (e) { console.error("Workspace: operation failed", e); /* Skills directory may not exist yet */ }
     return this.skills;
   }
 
@@ -1159,19 +1205,42 @@ interface LemonHarnessSettings {
 }
 
 let _cachedSettings: LemonHarnessSettings | null = null;
+let _projectRoot: string = process.cwd();
 
 function readLemonHarnessSettings(): LemonHarnessSettings {
   if (_cachedSettings) return _cachedSettings;
   try {
-    const settingsPath = join(process.cwd(), ".pi", "settings.json");
+    const settingsPath = join(_projectRoot, ".pi", "settings.json");
     if (existsSync(settingsPath)) {
       const raw = readFileSync(settingsPath, "utf-8");
       _cachedSettings = JSON.parse(raw).lemonharness || {};
       return _cachedSettings;
     }
-  } catch { /* ok */ }
+  } catch { console.error("Workspace: operation failed"); }
   _cachedSettings = {};
   return {};
+}
+
+/**
+ * Bootstrap the target project's .lemonharness/ directory with required
+ * static assets (search.py, quality-gate.sh, etc.) copied from the
+ * LemonHarness package root. This ensures deployed packages work in
+ * any target project without manual file setup.
+ */
+async function bootstrapWorkspace(projectRoot: string, extensionDir: string): Promise<void> {
+  const wsDir = join(projectRoot, ".lemonharness");
+  const pkgRoot = resolve(extensionDir, "..", "..");
+  const assets = ["search.py", "quality-gate.sh", "pre-acceptance-gate.sh", "delegate-runner.mjs"];
+  for (const asset of assets) {
+    const src = join(pkgRoot, ".lemonharness", asset);
+    const dst = join(wsDir, asset);
+    if (existsSync(src) && !existsSync(dst)) {
+      try {
+        const content = readFileSync(src, "utf-8");
+        await writeFile(dst, content, { mode: asset.endsWith(".sh") ? 0o755 : 0o644 });
+      } catch { /* asset copy failed — skip silently */ }
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1182,7 +1251,7 @@ export const workspaceManager = new WorkspaceManager();
 export const timeDirector = new TimeDirector();
 export const executionLogger = new ExecutionLogger();
 export const snapshotManager = new SnapshotManager(
-  join(process.cwd(), ".lemonharness"),
+  join(_projectRoot, ".lemonharness"),
 );
 
 export const contextBudgetTracker = new ContextBudgetTracker();
@@ -1216,6 +1285,13 @@ export default function (pi: ExtensionAPI) {
   // ── Session Events ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    // Update project root for this session and clear cached settings
+    _projectRoot = ctx.cwd;
+    _cachedSettings = null;
+
+    // Bootstrap workspace with static assets from the package
+    try { await bootstrapWorkspace(ctx.cwd, __dirname); } catch { /* bootstrap non-critical */ }
+
     // Capture initial git HEAD for commit detection
     try { lastKnownCommitHash = execSync("git rev-parse HEAD", { cwd: ctx.cwd, stdio: "pipe" }).toString().trim(); } catch { lastKnownCommitHash = null; }
     autoReflectTurnCounter = 0;
@@ -1224,7 +1300,7 @@ export default function (pi: ExtensionAPI) {
 
     const settings = readLemonHarnessSettings();
     workspaceManager.initialize(ctx.cwd, settings.workspace);
-    try { await mkdir(workspaceManager.getWorkspaceDir(), { recursive: true }); } catch { /* ok */ }
+    try { await mkdir(workspaceManager.getWorkspaceDir(), { recursive: true }); } catch { console.error("Workspace: operation failed"); }
     // Initialize snapshot manager with actual workspace dir
     const wsDir = workspaceManager.getWorkspaceDir();
     (snapshotManager as any)["snapshotsDir"] = join(wsDir, "snapshots");
@@ -1245,7 +1321,7 @@ export default function (pi: ExtensionAPI) {
       const mod = await import("./lemonharness-subsystems");
       healthChecker = new mod.HealthChecker();
       healthChecker.registerDefaultChecks(5);
-    } catch { /* subsystems not available — skip health checks */ }
+    } catch (e) { console.error("Workspace: operation failed", e); /* subsystems not available — skip health checks */ }
 
     ctx.ui.setStatus("lemonharness", "🍋 LemonHarness active");
   });
@@ -1263,7 +1339,12 @@ export default function (pi: ExtensionAPI) {
     // Store initial prompt description for session summary
     sessionPromptDescription = event.prompt.slice(0, 1000);
 
-    // 1. Workspace boundary instructions
+    // v4: Scan prompt for format constraints
+    formatGuard.scan(event.prompt);
+    const isConstrained = formatGuard.isConstrained;
+    const suppressExtras = formatGuard.suppressExtras;
+
+    // 1. Workspace boundary instructions (always needed)
     const wsDir = workspaceManager.getWorkspaceDir();
     systemPromptParts.push(
       `You are running inside a controlled workspace at \`${wsDir}\`.`,
@@ -1273,15 +1354,15 @@ export default function (pi: ExtensionAPI) {
       `workspace. The workspace state is available via the \`workspace_state\` tool.`,
     );
 
-    // 2. Time status injection
+    // 2. Time status injection (skip for format-constrained tasks)
     if (settings.timeAwareness?.enabled !== false) {
       const budget = estimateBudgetFromPrompt(event.prompt);
       timeDirector.setBudget(budget);
       timeDirector.start();
-      systemPromptParts.push("", timeDirector.formatStatus());
+      if (!isConstrained) systemPromptParts.push("", timeDirector.formatStatus());
     }
 
-    // 3. Rule knowledge injection
+    // 3. Rule knowledge injection (condensed for constrained tasks)
     if (settings.ruleKnowledge?.enabled !== false) {
       const autoDetect = settings.ruleKnowledge?.autoDetectDomain !== false;
       if (autoDetect) {
@@ -1291,65 +1372,60 @@ export default function (pi: ExtensionAPI) {
           if (content) systemPromptParts.push("", `## Relevant Rules: ${domain}`, "", content);
         }
       }
-      const skills = ruleKnowledge.getSkills();
-      if (skills.length > 0) {
-        systemPromptParts.push("", "## Available Skills");
-        systemPromptParts.push("Use `/skill:<name>` to load a skill manually. Available skills:");
-        for (const skill of skills) {
-          systemPromptParts.push(`- \`${skill.name}\`: ${skill.description.slice(0, 120)}`);
+      if (!isConstrained) {
+        const skills = ruleKnowledge.getSkills();
+        if (skills.length > 0) {
+          systemPromptParts.push("", "## Available Skills");
+          systemPromptParts.push("Use `/skill:<name>` to load a skill manually. Available skills:");
+          for (const skill of skills) {
+            systemPromptParts.push(`- \`${skill.name}\`: ${skill.description.slice(0, 120)}`);
+          }
         }
       }
     }
 
-    // 4. v3: Heuristic injection (ERL) — load from subsystems if available
-    try {
-      const mod = await import("./lemonharness-subsystems");
-      const settingsFull = readLemonHarnessSettings();
-      if (settingsFull.heuristics?.enabled !== false) {
-        const workspaceDir2 = workspaceManager.getWorkspaceDir();
-        const hm = new mod.HeuristicManager(workspaceDir2);
-        await hm.init();
-        const domain = ruleKnowledge.detectDomain(event.prompt)[0] || "general";
-        const heuristics = hm.getRelevantHeuristics(domain, settingsFull.heuristics?.maxHeuristicsPerPrompt || 5);
-        if (heuristics.length > 0) {
-          systemPromptParts.push("", hm.formatForPrompt(heuristics));
-        }
-      }
-    } catch { /* subsystems module not available — skip heuristic injection */ }
-
-    // v3: Inject available skill pseudocode contracts (SaP)
-    try {
-      const mod = await import("./lemonharness-subsystems");
-      const settingsFull = readLemonHarnessSettings();
-      if (settingsFull.skills?.pseudocodeEnabled !== false) {
-        const skills = ruleKnowledge.getSkills();
-        const contractLines: string[] = [];
-        for (const skill of skills) {
-          const sc = await ruleKnowledge.getSkillContent(skill.name);
-          if (sc) {
-            const pcMatch = sc.match(/## Pseudocode\n\n```[\s\S]*?```/);
-            if (pcMatch) {
-              const codeBlock = pcMatch[0].replace("## Pseudocode\n\n```\nSKILL ", "").replace("\n```", "").trim();
-              contractLines.push("  - " + codeBlock.split("\n")[0] + " — " + skill.description.slice(0, 60));
-            }
+    // 4. v3: Heuristic injection (ERL) — skipped for format-constrained tasks
+    if (!suppressExtras) {
+      try {
+        const mod = await import("./lemonharness-subsystems");
+        const settingsFull = readLemonHarnessSettings();
+        if (settingsFull.heuristics?.enabled !== false) {
+          const workspaceDir2 = workspaceManager.getWorkspaceDir();
+          const hm = new mod.HeuristicManager(workspaceDir2);
+          await hm.init();
+          const domain = ruleKnowledge.detectDomain(event.prompt)[0] || "general";
+          const heuristics = hm.getRelevantHeuristics(domain, settingsFull.heuristics?.maxHeuristicsPerPrompt || 5);
+          if (heuristics.length > 0) {
+            systemPromptParts.push("", hm.formatForPrompt(heuristics));
           }
         }
-        if (contractLines.length > 0) {
-          systemPromptParts.push("", "📋 Available Skill Contracts (SaP Pseudocode):", ...contractLines);
+      } catch { /* subsystems module not available */ }
+    }
+
+    // v3: SaP contract injection — single-line count, no detail
+    try {
+      const mod = await import("./lemonharness-subsystems");
+      const settingsFull = readLemonHarnessSettings();
+      if (settingsFull.skills?.pseudocodeEnabled !== false && !isConstrained) {
+        const skills = ruleKnowledge.getSkills();
+        if (skills.length > 0) {
+          systemPromptParts.push("", `📋 ${skills.length} skills loaded.`);
         }
       }
-    } catch { /* SaP contract injection not available */ }
+    } catch { /* SaP not available */ }
 
-    // 5. Execution trail — with compression for long sessions
-    const logInterval = settings.executionLogging?.injectTrailInterval ?? 3;
-    trailInjectionCounter++;
-    if (trailInjectionCounter % logInterval === 1) {
-      const maxEntries = settings.executionLogging?.maxTrailEntries ?? 10;
-      const totalEntries = executionLogger.getExecutionTrail().length;
-      const trail = totalEntries > maxEntries * 2
-        ? executionLogger.summarizeCompressed(maxEntries)
-        : executionLogger.summarize(maxEntries);
-      if (trail) systemPromptParts.push("", "📋 Recent Execution Trail:", trail);
+    // 5. Execution trail — adaptive: skip when constrained, longer early interval
+    const totalEntries = executionLogger.getExecutionTrail().length;
+    if (!suppressExtras && totalEntries > 5) {
+      const logInterval = totalEntries < 20 ? 5 : settings.executionLogging?.injectTrailInterval ?? 3;
+      trailInjectionCounter++;
+      if (trailInjectionCounter % logInterval === 1) {
+        const maxEntries = settings.executionLogging?.maxTrailEntries ?? 10;
+        const trail = totalEntries > maxEntries * 2
+          ? executionLogger.summarizeCompressed(maxEntries)
+          : executionLogger.summarize(maxEntries);
+        if (trail) systemPromptParts.push("", "📋 Recent Execution Trail:", trail);
+      }
     }
 
     return {
@@ -1382,40 +1458,32 @@ export default function (pi: ExtensionAPI) {
         "info",
       );
 
-      // v3: Record phase checkpoint
+      // v3: Record phase checkpoint (compact)
       const wsState = workspaceManager.getWorkspaceState();
-      const trail = executionLogger.summarize(3);
       const cp = timeDirector.recordPhaseCheckpoint(
         currentPhase.phase,
         JSON.stringify({ files: wsState.files.length, deps: wsState.dependencies.length }),
-        trail.replace(/\n/g, " | "),
+        "",
       );
-      ctx.ui.setStatus("lemonharness-checkpoint", `📍 Checkpoint: ${cp.phase} (DA: ${(cp.decisionAdvantage * 100).toFixed(0)}%)`);
-
-      // v3: Extract heuristics from recent errors on phase transition
-      try {
-        const mod = await import("./lemonharness-subsystems");
-        const wsDir = workspaceManager.getWorkspaceDir();
-        const hm = new mod.HeuristicManager(wsDir);
-        await hm.init();
-        const recentErrors = executionLogger.getExecutionTrail().filter((t: any) => t.isError).slice(-6);
-        const extracted: string[] = [];
-        for (const t of recentErrors) {
-          if (t.toolName) {
-            const h = hm.extractHeuristic(
-              "failure", `${t.toolName} failed`,
-              JSON.stringify(t.args || ""), "general",
-            );
-            if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
+      ctx.ui.setStatus("lemonharness-checkpoint", `📍 ${cp.phase} (DA: ${(cp.decisionAdvantage * 100).toFixed(0)}%)`);
+// v3: Extract heuristics from recent errors (compact)
+      const recentErrors = executionLogger.getExecutionTrail().filter((t: any) => t.isError).slice(-6);
+      if (recentErrors.length > 1) {
+        try {
+          const mod = await import("./lemonharness-subsystems");
+          const wsDir = workspaceManager.getWorkspaceDir();
+          const hm = new mod.HeuristicManager(wsDir);
+          await hm.init();
+          let count = 0;
+          for (const t of recentErrors) {
+            if (t.toolName) {
+              hm.extractHeuristic("failure", `${t.toolName} failed`, JSON.stringify(t.args || ""), "general");
+              count++;
+            }
           }
-        }
-        if (extracted.length > 0) {
-          ctx.ui.notify(
-            `🧪 Phase heuristics (${previousPhase} → ${currentPhase.phase}):\n${extracted.join("\n")}`,
-            "info",
-          );
-        }
-      } catch { /* subsystems not available */ }
+          if (count > 0) ctx.ui.notify(`🧪 ${count} heuristics extracted from phase errors`, "info");
+        } catch { /* subsystems not available */ }
+      }
 
       // Auto-commit remaining changes on P4 (Reserve) entry (if not already committed)
       if (currentPhase.phase === "reserve" && previousPhase !== "reserve") {
@@ -1498,7 +1566,7 @@ export default function (pi: ExtensionAPI) {
           try {
             const files = readdirSync(join(projectRoot, "tests"));
             return files.some(f => f.includes(".test.") || f.includes(".spec."));
-          } catch { return false; }
+          } catch (e) { console.error("Workspace: operation failed", e); return false; }
         })();
 
         if (!hasTestRunner) {
@@ -1554,7 +1622,7 @@ export default function (pi: ExtensionAPI) {
                     ctx.ui.notify(`📸 Auto-committed as ${hash} — quality gate passed`, "success");
                     autoCommitDone = true;
                   }
-                } catch { /* git not available or nothing to commit */ }
+                } catch (e) { console.error("Workspace: operation failed", e); /* git not available or nothing to commit */ }
               }
             } else {
               ctx.ui.notify(`⚠️ Auto quality gate FAILED — review issues before continuing\n${output.slice(0, 500)}`, "warning");
@@ -1647,33 +1715,24 @@ export default function (pi: ExtensionAPI) {
       // Extract heuristics periodically (every 5 turns) + on error thresholds
       autoReflectTurnCounter++;
       const consecErrors = executionLogger.getConsecutiveErrors();
-      if (autoReflectTurnCounter % 5 === 0 || consecErrors >= 3) {
+      if ((autoReflectTurnCounter % 5 === 0 || consecErrors >= 3) && consecErrors > 1) {
         const trail = executionLogger.getExecutionTrail();
         const recentErrors = trail.filter(t => t.isError).slice(-8);
-        if (recentErrors.length > 0) {
+        if (recentErrors.length > 1) {
           (async () => {
             try {
               const mod = await import("./lemonharness-subsystems");
               const wsDir = workspaceManager.getWorkspaceDir();
               const hm = new mod.HeuristicManager(wsDir);
               await hm.init();
-              const extracted: string[] = [];
+              let count = 0;
               for (const t of recentErrors) {
                 if (t.toolName) {
-                  const h = hm.extractHeuristic(
-                    "failure", `${t.toolName} failed`,
-                    JSON.stringify(t.args || ""), "general"
-                  );
-                  if (h) extracted.push(`• "${h.rule}" (${h.type}, confidence: ${h.confidence.toFixed(2)})`);
+                  hm.extractHeuristic("failure", `${t.toolName} failed`, JSON.stringify(t.args || ""), "general");
+                  count++;
                 }
               }
-              if (extracted.length > 0) {
-                const reason = consecErrors >= 3 ? `${consecErrors} consecutive errors` : `periodic check (turn ${autoReflectTurnCounter})`;
-                ctx.ui.notify(
-                  `🧪 Auto-reflect: ${reason}\n${extracted.join("\n")}\n\n${extracted.length} heuristic(s) saved. Use /lemonharness:heuristics to view all.`,
-                  "info",
-                );
-              }
+              if (count > 1) ctx.ui.notify(`🧪 Auto-reflect: ${count} heuristics extracted`, "info");
             } catch { /* subsystems not available */ }
           })();
         }
@@ -1804,13 +1863,13 @@ export default function (pi: ExtensionAPI) {
                   const { readFile } = await import("node:fs/promises");
                   const content = await readFile(absPath, "utf-8");
                   changedFiles.push({ path: file.path, oldContent: null, newContent: content, action: "modify" });
-                } catch { /* file gone */ }
+                } catch (e) { console.error("Workspace: operation failed", e); /* file gone */ }
               }
               if (changedFiles.length > 0) {
                 const meta = await snapshotManager.createSnapshot(snapshotId, `Auto-snapshot before: ${command.slice(0, 60)}`, changedFiles);
                 ctx.ui.notify(`📸 Auto-snapshot created: ${snapshotId} (${meta.files.length} files)`, "info");
               }
-            } catch { /* snapshot not available */ }
+            } catch (e) { console.error("Workspace: operation failed", e); /* snapshot not available */ }
           })();
         }
       }
@@ -1894,7 +1953,7 @@ export default function (pi: ExtensionAPI) {
       let oldContent: string | null = null;
       let fileExisted = false;
       if (await pathExists(absPath)) {
-        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* ok */ }
+        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { console.error("Workspace: operation failed"); }
       }
       await writeFile(absPath, params.content, "utf-8");
       workspaceManager.trackFileWrite(params.path, fileExisted ? "modify" : "create");
@@ -1907,7 +1966,7 @@ export default function (pi: ExtensionAPI) {
           newContent: params.content,
           action: fileExisted ? "modify" : "create",
         }]);
-      } catch { /* snapshot best-effort */ }
+      } catch (e) { console.error("Workspace: operation failed", e); /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Written ${params.path} (${params.content.length} chars)` }], details: { path: params.path, size: params.content.length } };
     },
   });
@@ -1931,12 +1990,12 @@ export default function (pi: ExtensionAPI) {
       let oldContent: string | null = null;
       let fileExisted = false;
       if (await pathExists(absPath)) {
-        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* ok */ }
+        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { console.error("Workspace: operation failed"); }
       }
       await appendFile(absPath, params.content, "utf-8");
       // Read new content after append for snapshot diff
       let newContent: string = "";
-      try { newContent = await readFile(absPath, "utf-8"); } catch { /* ok */ }
+      try { newContent = await readFile(absPath, "utf-8"); } catch { console.error("Workspace: operation failed"); }
       workspaceManager.trackFileWrite(params.path, "modify");
       // Auto-create snapshot for this change
       try {
@@ -1947,7 +2006,7 @@ export default function (pi: ExtensionAPI) {
           newContent,
           action: fileExisted ? "modify" : "create",
         }]);
-      } catch { /* snapshot best-effort */ }
+      } catch (e) { console.error("Workspace: operation failed", e); /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Appended to ${params.path}` }], details: { path: params.path } };
     },
   });
@@ -2298,7 +2357,7 @@ export default function (pi: ExtensionAPI) {
           lines.push(...extracted);
           lines.push("", `   ${extracted.length} heuristic(s) saved. Use /lemonharness:heuristics to view all.`);
         }
-      } catch { /* subsystems not available */ }
+      } catch (e) { console.error("Workspace: operation failed", e); /* subsystems not available */ }
 
       ctx.ui.notify(lines.join("\n"), "info");
     },

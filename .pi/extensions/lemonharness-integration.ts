@@ -122,7 +122,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     if (metricsRecorder) {
-      try { await metricsRecorder.finalize(100); } catch { /* non-critical */ }
+      try { await metricsRecorder.finalize(100); } catch { console.error("Integration: operation failed"); }
     }
     ctx.ui.setStatus("lemonharness-subsystems", undefined);
   });
@@ -160,7 +160,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const settings = JSON.parse(require("fs").readFileSync(settingsPath, "utf-8"));
       suggestAlternatives = settings.lemonharness?.toolPrivilege?.suggestAlternatives !== false;
-    } catch { /* use default */ }
+    } catch { console.error("Integration: using default after error"); }
 
     if (!suggestAlternatives) return;
 
@@ -291,7 +291,7 @@ export default function (pi: ExtensionAPI) {
         const { readFileSync } = require("fs");
         const settings = JSON.parse(readFileSync(join(ctx.cwd, ".pi", "settings.json"), "utf-8"));
         autoRetry = settings.lemonharness?.escalationAutoRetry !== false;
-      } catch { /* use default */ }
+      } catch { console.error("Integration: using default after error"); }
 
       if (autoRetry) {
         const escalationResult = privilegeManager.attemptEscalation(event.toolName, "tool_error");
@@ -331,7 +331,7 @@ export default function (pi: ExtensionAPI) {
           `⚠ Tool error: ${event.toolName} — check for regression patterns`,
           "warning",
         );
-      } catch { /* non-critical */ }
+      } catch { console.error("Integration: operation failed"); }
     } else if (!event.isError && privilegeManager && event.toolName) {
       // Non-error: still check for constraint violations in content
       const content = (typeof event.content === "string" ? event.content : "") || "";

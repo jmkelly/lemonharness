@@ -293,6 +293,14 @@ this phase.
 |---|---|---|
 | `general-rules` | **Always** (base skill) | Data splits, seeds, validation, workspace discipline |
 | `engineering-practices` | **Always** (base skill) | TDD, KISS, YAGNI, DRY, complexity reduction, code metrics |
+| `self-improvement` | **Always** (base skill) | OODA loop, error-as-data, cross-session learning |
+| `testing-strategy` | Test keywords: test, property, contract, mutation, coverage, fuzz | Property-based testing, contract tests, mutation testing, fuzzing, test pyramid |
+| `api-design` | API keywords: api, rest, openapi, graphql, contract, endpoint, grpc | Contract-first, versioning, idempotency, pagination, backward compatibility |
+| `security-practices` | Security keywords: auth, password, token, cve, owasp, secret, security | OWASP Top 10, input validation, secrets, dependency audit, security headers |
+| `observability` | Observability keywords: log, metric, trace, monitor, alert, slo, dashboard | Structured logging, RED metrics, distributed tracing, SLOs, health checks |
+| `database-patterns` | Database keywords: database, sql, query, migration, index, transaction | Schema migrations, query optimization, N+1, connection pools, integrity |
+| `error-resilience` | Resilience keywords: circuit, retry, timeout, fallback, degrade, resilience | Circuit breakers, retries, bulkheads, graceful degradation, timeouts |
+| `frontend-design` | Design keywords: frontend, ui, design, css, html, layout, typography, visual, styling | Distinctive visual design, typography, layout, aesthetic direction, UI writing, design process |
 | `ml-workflows` | ML/DL keywords: train, model, dataset, epoch | Artifact separation, reproducibility, checkpointing |
 | `bio-design` | Biology keywords: protein, DNA, RNA, genome | API stability, biological constraints, synthesis |
 | `vision-media` | Vision keywords: image, video, frame, pixel | CLI stability, mask alignment, output validation |

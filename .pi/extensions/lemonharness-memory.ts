@@ -106,6 +106,7 @@ interface RetrievalContext {
   query: string;
   tags?: string[];
   maxResults?: number;
+  /** Default raised to 0.5 (was 0.3) to reduce context noise from low-relevance retrievals */
   minConfidence?: number;
   taskType?: string;
 }
@@ -231,28 +232,19 @@ class MemoryStore {
       event.reuseCount++;
     }
 
-    // Recalculate confidence with time-based decay
-    // Research basis: Ebbinghaus forgetting curve (2025 adaptation)
+    // Recalculate confidence with time-based decay (Ebbinghaus forgetting curve)
     event.confidenceScore = this.calculateConfidence(
       event.successCount,
       event.failureCount,
       event.reuseCount,
-    ) * this.getDecayFactor(event.timestamp);
+      event.timestamp,
+    );
 
     // Persist the event log with updated values
     await this.persistEvents();
   }
 
-  /**
-   * Compute time-based decay factor for a memory.
-   * Uses exponential decay with configurable half-life.
-   */
-  private getDecayFactor(lastAccessTime: number): number {
-    const daysSinceAccess = (Date.now() - lastAccessTime) / (1000 * 60 * 60 * 24);
-    if (daysSinceAccess <= 7) return 1.0; // No decay for first week
-    const halfLifeDays = 30;
-    return Math.max(0.1, Math.exp(-daysSinceAccess / halfLifeDays));
-  }
+
 
   /**
    * Update event feedback by matching on summary text (fuzzy-lite matching).
@@ -273,12 +265,12 @@ class MemoryStore {
         event.reuseCount++;
       }
       // Apply time-based decay to confidence
-      const baseConfidence = this.calculateConfidence(
+      event.confidenceScore = this.calculateConfidence(
         event.successCount,
         event.failureCount,
         event.reuseCount,
+        event.timestamp,
       );
-      event.confidenceScore = baseConfidence * this.getDecayFactor(event.timestamp);
     }
     if (matching.length > 0) {
       await this.persistEvents();
@@ -435,7 +427,7 @@ class MemoryStore {
    * no result meets the confidence threshold.
    */
   retrieve(ctx: RetrievalContext): RetrievalResult {
-    const minConfidence = ctx.minConfidence ?? 0.3;
+    const minConfidence = ctx.minConfidence ?? 0.5;
     const maxResults = ctx.maxResults ?? 5;
 
     // Score text entries
@@ -561,7 +553,8 @@ class MemoryStore {
       const content = await readFile(eventPath, "utf-8");
       const lines = content.split("\n").filter(Boolean);
       this.events = lines.map((line) => JSON.parse(line));
-    } catch {
+    } catch (e) {
+      console.error("Memory: failed to load events", e);
       this.events = [];
     }
   }
@@ -864,6 +857,7 @@ class MemoryStore {
     successCount: number,
     failureCount: number,
     reuseCount: number,
+    lastAccessTime?: number,
   ): number {
     if (reuseCount === 0) return 0;
     const successRate = successCount / (successCount + failureCount);
@@ -872,18 +866,20 @@ class MemoryStore {
 
     let confidence = successRate * failurePenalty * (0.5 + 0.5 * reuseFactor);
 
-    // Apply time-based decay using Ebbinghaus forgetting curve
+    // Apply Ebbinghaus forgetting curve decay with configurable half-life
     // Each reinforcement extends the effective half-life
     const baseHalfLifeDays = 30;
-    const reuseMultiplier = 1 + Math.min(reuseCount, 6) * 0.5; // 1x to 4x
-    const effectiveHalfLifeMs = baseHalfLifeDays * reuseMultiplier * 24 * 60 * 60 * 1000;
+    const reuseMultiplier = 1 + Math.min(reuseCount, 6) * 0.5;
+    if (lastAccessTime && lastAccessTime > 0) {
+      const daysSinceAccess = (Date.now() - lastAccessTime) / (1000 * 60 * 60 * 24);
+      if (daysSinceAccess > 7) {
+        const effectiveHalfLifeDays = baseHalfLifeDays * reuseMultiplier;
+        const decayFactor = Math.exp(-daysSinceAccess / effectiveHalfLifeDays);
+        confidence *= Math.max(0.05, decayFactor);
+      }
+    }
 
-    // Time since this memory was last updated (use update timestamp from caller)
-    // We use the current time as reference — the actual lastAccessTime is passed
-    // separately in the updated methods below.
-    confidence *= Math.max(0, Math.exp(-reuseCount / 100)); // gentle reuse scaling
-
-    return Math.max(0, confidence);
+    return Math.max(0, Math.min(1, confidence));
   }
 
   // ── File Format Helpers ────────────────────────────────────────
@@ -1385,7 +1381,7 @@ export default function (pi: ExtensionAPI) {
         query: params.query,
         tags,
         maxResults: params.max_results ?? 5,
-        minConfidence: params.min_confidence ?? 0.3,
+        minConfidence: params.min_confidence ?? 0.5,
       });
 
       if (result.abstain) {

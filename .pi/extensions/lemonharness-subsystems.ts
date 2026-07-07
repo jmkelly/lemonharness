@@ -31,7 +31,6 @@
  * lemonharness-memory.ts extensions.
  */
 
-import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile, stat as fsStat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -475,7 +474,7 @@ export class MetricsRecorder {
       await mkdir(join(this.metricsDir, "harness"), { recursive: true });
       const path = join(this.metricsDir, "harness", `${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`);
       await writeFile(path, JSON.stringify(snapshot, null, 2), "utf-8");
-    } catch { /* non-critical */ }
+    } catch { console.error("Subsystems: non-critical operation failed"); }
   }
 
   async getHarnessReport(): Promise<string> {
@@ -500,7 +499,7 @@ export class MetricsRecorder {
       await writeFile(filePath, JSON.stringify(this.currentSession, null, 2), "utf-8");
       await this.saveHarnessSnapshot(safeId);
       await this.updateAggregate();
-    } catch { /* non-critical */ }
+    } catch { console.error("Subsystems: non-critical operation failed"); }
   }
 
   private async updateAggregate() {
@@ -543,7 +542,7 @@ export class MetricsRecorder {
         join(this.metricsDir, "aggregate.json"),
         JSON.stringify(aggregate, null, 2), "utf-8",
       );
-    } catch { /* non-critical */ }
+    } catch { console.error("Subsystems: non-critical operation failed"); }
   }
 
   private computeTrend(sorted: SessionMetrics[]): string {
@@ -578,7 +577,8 @@ export class MetricsRecorder {
         `  Validation pass rate: ${agg.allTimeAvg.validationPassRate.toFixed(1)}%`,
         `Trend: ${agg.trend}`,
       ].join("\n");
-    } catch {
+    } catch (e) {
+      console.error("Subsystems: operation failed", e);
       return "📊 No cross-session data yet. Complete a session to generate metrics.";
     }
   }
@@ -783,14 +783,15 @@ export class QualityGateManager {
   private async persistSafetySpecs() {
     try {
       await writeFile(this.safetySpecsPath, JSON.stringify(this.safetySpecs, null, 2), "utf-8");
-    } catch { /* non-critical */ }
+    } catch { console.error("Subsystems: non-critical operation failed"); }
   }
 
   async loadSafetySpecs() {
     try {
       const content = await readFile(this.safetySpecsPath, "utf-8");
       this.safetySpecs = JSON.parse(content);
-    } catch {
+    } catch (e) {
+      console.error("Subsystems: operation failed", e);
       this.safetySpecs = [];
     }
   }
@@ -883,7 +884,7 @@ export class HeuristicManager {
   }
 
   private async save() {
-    try { const { mkdir, writeFile } = await import("node:fs/promises"); const { dirname } = await import("node:path"); await mkdir(dirname(this.storagePath), { recursive: true }); await writeFile(this.storagePath, JSON.stringify(this.heuristics, null, 2), "utf-8"); } catch { /* non-critical */ }
+    try { const { mkdir, writeFile } = await import("node:fs/promises"); const { dirname } = await import("node:path"); await mkdir(dirname(this.storagePath), { recursive: true }); await writeFile(this.storagePath, JSON.stringify(this.heuristics, null, 2), "utf-8"); } catch { console.error("Subsystems: non-critical operation failed"); }
   }
 
   private async load() {
@@ -924,9 +925,9 @@ export class PrivilegeManager {
     this.specificEscalation.set("workspace_memory_feedback", "workspace_exec");
     this.specificEscalation.set("workspace_exec", "workspace_install_dep");
     this.specificEscalation.set("workspace_validate", "workspace_exec");
-    this.specificEscalation.set("bash", "write");
-    this.specificEscalation.set("write", "edit");
-    this.specificEscalation.set("edit", "workspace_exec");
+    this.specificEscalation.set("bash", "workspace_exec");
+    this.specificEscalation.set("write", "workspace_exec");
+    this.specificEscalation.set("edit", "workspace_validate");
   }
 
   private registerDefaultTools() {
@@ -1556,120 +1557,26 @@ export function calculateBudgetExtension(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 7. TF-IDF Enhanced Retrieval
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// 7. TF-IDF Enhanced Retrieval (Consolidated in lemonharness-shared.ts)
+// ═══════════════════════════════════════════════
 
-interface TokenVector {
-  tokens: Map<string, number>;
-  magnitude: number;
+// All TF-IDF functions are now in lemonharness-shared.ts.
+// Re-export for backward compatibility:
+export {
+  tokenize,
+  simpleStem,
+  computeTFIDFVector,
+  cosineTFIDFSimilarity,
+  hybridSimilarity,
+  buildDocumentFrequency,
+} from "./lemonharness-shared";
+
+// Deprecated - use buildDocumentFrequency from shared module
+function buildDF(_entries: string[]): Map<string, number> {
+  return new Map();
 }
 
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter(t => t.length >= 2 && t.length <= 40)
-    .map(t => simpleStem(t));
-}
-
-function simpleStem(word: string): string {
-  if (word.length <= 4) return word;
-  const suffixes = ["ing", "tion", "sion", "ment", "ness", "able", "ible", "ful", "less", "ly", "ed", "es", "s"];
-  for (const suffix of suffixes) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= 3) {
-      return word.slice(0, -suffix.length);
-    }
-  }
-  return word;
-}
-
-function buildDF(entries: string[]): Map<string, number> {
-  const df = new Map<string, number>();
-  const N = entries.length;
-  if (N === 0) return df;
-  for (const text of entries) {
-    const terms = new Set(tokenize(text));
-    for (const term of terms) {
-      df.set(term, (df.get(term) || 0) + 1);
-    }
-  }
-  return df;
-}
-
-export function computeTFIDFVector(
-  query: string,
-  corpus: string[],
-  docIndex: number,
-): TokenVector {
-  const queryTerms = tokenize(query);
-  const docTerms = tokenize(corpus[docIndex] || "");
-
-  if (queryTerms.length === 0 || docTerms.length === 0) {
-    return { tokens: new Map(), magnitude: 0 };
-  }
-
-  const df = buildDF(corpus);
-  const N = corpus.length;
-
-  const tokens = new Map<string, number>();
-  const querySet = new Set(queryTerms);
-  let magnitude = 0;
-
-  for (const term of docTerms) {
-    if (!querySet.has(term)) continue;
-    const tf = 1 + Math.log2(docTerms.filter(t => t === term).length + 1);
-    const docFreq = df.get(term) || 1;
-    const idf = Math.log2((N + 1) / (docFreq + 1)) + 1;
-    const tfidf = tf * idf;
-    tokens.set(term, tfidf);
-    magnitude += tfidf * tfidf;
-  }
-
-  return { tokens, magnitude: Math.sqrt(magnitude) };
-}
-
-export function cosineTFIDFSimilarity(
-  query: string,
-  document: string,
-  corpus: string[],
-): number {
-  if (!query.trim() || !document.trim()) return 0;
-  const corpusForIdf = [...corpus, query];
-  const docIndex = corpus.indexOf(document);
-  if (docIndex < 0) {
-    const terms = tokenize(document);
-    const qTerms = tokenize(query);
-    const intersection = terms.filter(t => qTerms.includes(t));
-    const union = new Set([...terms, ...qTerms]);
-    return union.size > 0 ? intersection.length / union.size : 0;
-  }
-  const docVec = computeTFIDFVector(query, corpusForIdf, docIndex);
-  const queryVec = computeTFIDFVector(query, corpusForIdf, corpusForIdf.length - 1);
-  if (docVec.magnitude === 0 || queryVec.magnitude === 0) return 0;
-  let dotProduct = 0;
-  for (const [term, score] of docVec.tokens) {
-    const qScore = queryVec.tokens.get(term) || 0;
-    dotProduct += score * qScore;
-  }
-  return dotProduct / (docVec.magnitude * queryVec.magnitude);
-}
-
-export function hybridSimilarity(
-  query: string,
-  document: string,
-  corpus: string[],
-): number {
-  const tfidf = cosineTFIDFSimilarity(query, document, corpus);
-  const queryWords = new Set(tokenize(query));
-  const docWords = new Set(tokenize(document));
-  const intersection = new Set([...queryWords].filter(w => docWords.has(w)));
-  const union = new Set([...queryWords, ...docWords]);
-  const jaccard = union.size > 0 ? intersection.size / union.size : 0;
-  return tfidf * 0.6 + jaccard * 0.4;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 8. HealthChecker — Periodic Scheduled Health Checks
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2388,7 +2295,8 @@ export class ValidationAutoHealer {
     try {
       await this.execCommand(fix.command);
       return true;
-    } catch {
+    } catch (e) {
+      console.error("Subsystems: operation failed", e);
       return false;
     }
   }
