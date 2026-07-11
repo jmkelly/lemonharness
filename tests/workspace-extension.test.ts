@@ -18,7 +18,7 @@ describe("TimeDirector", () => {
   it("should create a TimeDirector with default config", async () => {
     const mod = await import("../.pi/extensions/lemonharness/workspace.ts");
     const director = new mod.TimeDirector();
-    expect(director.getBudget()).toBe(300_000); // default 5 min
+    expect(director.getBudget()).toBe(600_000); // default 10 min (changed from 5 min in d2f9dc6)
   });
 
   it("should accept custom budget in config", async () => {
