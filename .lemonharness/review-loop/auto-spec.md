@@ -4,4 +4,4 @@
 
 The original task:
 
-fix issue
+refactoring loop

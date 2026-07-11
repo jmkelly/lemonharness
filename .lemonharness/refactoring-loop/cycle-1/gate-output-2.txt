@@ -1,0 +1,26 @@
+═══════════════════════════════════════════════════════════════
+  🍋 LemonHarness Quality Gate
+  Scanning: src
+═══════════════════════════════════════════════════════════════
+
+  📐 Node/TypeScript project detected
+
+─── 📏 File Size Check ───
+  📝 .pi/extensions/lemonharness/subsystems-core/health-checker.ts (225 lines)
+  📝 .pi/extensions/lemonharness/subsystems-core/metrics-recorder.ts (268 lines)
+  📝 .pi/extensions/lemonharness/subsystems-core/types.ts (281 lines)
+  📝 .pi/extensions/lemonharness/subsystems-core/validation-auto-healer.ts (266 lines)
+  📝 .pi/extensions/lemonharness/subsystems-core/privilege-manager.ts (221 lines)
+  ⚠  .pi/extensions/lemonharness/visualization.ts (761 lines, max 400)
+  ⚠  .pi/extensions/lemonharness/workspace.ts (1471 lines, max 400)
+  ⚠  .pi/extensions/lemonharness/summary.ts (736 lines, max 400)
+  ⚠  .pi/extensions/lemonharness/memory.ts (691 lines, max 400)
+  📝 .pi/extensions/lemonharness/shared.ts (328 lines)
+  📝 .pi/extensions/lemonharness/memory-core/memory-store.ts (290 lines)
+  ⚠  .pi/extensions/lemonharness/integration.ts (1098 lines, max 400)
+  📝 .pi/extensions/lemonharness/review-loop.ts (392 lines)
+  ❌ 5 file(s) exceed 400 lines — consider splitting
+
+─── 🏭 Extension Factory Check ───
+  ✅ All extension directories have valid index.ts entry points
+─── ⚡ Syntax Parse Check ───
