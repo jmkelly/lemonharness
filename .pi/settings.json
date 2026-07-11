@@ -50,6 +50,12 @@
       "blockOnFailure": false,
       "scriptPath": ".lemonharness/quality-gate.sh"
     },
+    "reviewLoop": {
+      "enabled": true,
+      "autoTriggerOnP3Entry": true,
+      "defaultCycles": 2,
+      "maxCycles": 5
+    },
     "dynamicBudget": {
       "enabled": true,
       "graceBandExtensionPercent": 0.2,

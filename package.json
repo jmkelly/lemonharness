@@ -2,7 +2,13 @@
   "name": "lemonharness",
   "version": "1.0.0",
   "description": "LemonHarness execution framework for pi — long-horizon LLM agent optimizations",
-  "keywords": ["pi-package", "pi-extension", "agent", "harness", "lemonharness"],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "agent",
+    "harness",
+    "lemonharness"
+  ],
   "license": "MIT",
   "author": "James",
   "repository": {
@@ -20,13 +26,21 @@
     "AGENTS.md"
   ],
   "pi": {
-    "extensions": [".pi/extensions"],
-    "skills": [".pi/skills"],
+    "extensions": [
+      ".pi/extensions"
+    ],
+    "skills": [
+      ".pi/skills"
+    ],
     "prompts": [],
     "themes": []
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
+  },
+  "dependencies": {
+    "duck-duck-scrape": "^2.2.7",
+    "fast-xml-parser": "^5.9.3"
   }
 }

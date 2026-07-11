@@ -32,6 +32,22 @@ import {
 
 import { getProjectRoot, setProjectRoot, readLemonHarnessSettings, bootstrapWorkspace, RuleKnowledgeManager, TimePhaseName, SnapshotFileChange } from "./workspace-core";
 
+// Review loop auto-trigger imports (lazy — only used on P3 entry)
+let ReviewLoopManager: any = null;
+let RLM_buildReviewerTask: any = null;
+let RLM_buildFinalHandoff: any = null;
+
+async function ensureReviewLoopImports() {
+  if (!ReviewLoopManager) {
+    try {
+      const mod = await import("./review-loop");
+      ReviewLoopManager = mod.ReviewLoopManager;
+      RLM_buildReviewerTask = mod.buildReviewerTask;
+      RLM_buildFinalHandoff = mod.RLM_buildFinalHandoff || mod.buildFinalHandoff;
+    } catch { /* review-loop module not available */ }
+  }
+}
+
 export const workspaceManager = new WorkspaceManager();
 export const timeDirector = new TimeDirector();
 export const executionLogger = new ExecutionLogger();
@@ -51,6 +67,9 @@ let trailInjectionCounter = 0;
 
 // Stored for session summary generation
 export let sessionPromptDescription = "";
+
+// Review loop auto-trigger flag (prevents re-trigger per session)
+let reviewLoopAutoTriggered = false;
 
 // Git commit tracking for auto-reflection
 let lastKnownCommitHash: string | null = null;
@@ -413,6 +432,62 @@ export function setupWorkspace(pi: ExtensionAPI) {
             }
           });
         });
+
+        // Auto-trigger review loop on P3 (Validate) entry
+        // Creates a spec file from the session prompt and notifies the user.
+        // Run with: /review-loop .lemonharness/review-loop/auto-spec.md [cycles]
+        const reviewLoopSettings = readLemonHarnessSettings().reviewLoop || {};
+        if (
+          !reviewLoopAutoTriggered &&
+          reviewLoopSettings.enabled !== false &&
+          reviewLoopSettings.autoTriggerOnP3Entry !== false
+        ) {
+          reviewLoopAutoTriggered = true;
+          (async () => {
+            try {
+              await ensureReviewLoopImports();
+              if (!ReviewLoopManager) return;
+
+              const rlm = new ReviewLoopManager(getProjectRoot());
+              await rlm.init();
+
+              // Derive spec from the original task description
+              const specContent = sessionPromptDescription ||
+                "Implement the required changes according to the session task.";
+              const specDir = join(getProjectRoot(), ".lemonharness", "review-loop");
+              const specPath = join(specDir, "auto-spec.md");
+              await mkdir(specDir, { recursive: true });
+              await writeFile(
+                specPath,
+                `# Auto-Generated Spec — Review Loop\n\n` +
+                `**Generated from session prompt on P3 entry**\n\n` +
+                `The original task:\n\n${specContent}`,
+                "utf-8",
+              );
+
+              ctx.ui.setStatus(
+                "lemonharness-review-loop",
+                `🔄 Review loop ready — /review-loop ${join(".lemonharness", "review-loop", "auto-spec.md")}`,
+              );
+
+              ctx.ui.notify(
+                `🔄 Review loop auto-ready\n\n` +
+                `A spec has been derived from your task and saved to:\n` +
+                `  \`.lemonharness/review-loop/auto-spec.md\`\n\n` +
+                `To run the relentless quality loop, use:\n` +
+                `  \`/review-loop .lemonharness/review-loop/auto-spec.md\`\n\n` +
+                `This will spawn an independent reviewer (advisory-only) to inspect ` +
+                `the current implementation and score issues by severity 1–10. ` +
+                `Any findings feed back to a fresh-context implementer. The loop ` +
+                `terminates when only diminishing-return issues remain ` +
+                `(severity ≤ 3 for 2 consecutive cycles).`,
+                "info",
+              );
+            } catch (err: any) {
+              ctx.ui.notify(`⚠️ Review loop auto-trigger note: ${err.message}`, "info");
+            }
+          })();
+        }
       }
     }
     previousPhase = currentPhase.phase;
