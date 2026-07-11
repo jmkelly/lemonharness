@@ -38,6 +38,9 @@ export function setupWorkspaceTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ws = workspaceManager;
+      if (!params.path || params.content == null) {
+        return { content: [{ type: "text" as const, text: "Error: Both 'path' (string) and 'content' (string) are required." }], isError: true, details: {} };
+      }
       const absPath = resolve(ws.getProjectRoot(), params.path);
       if (ws.wouldBlockWrite(absPath)) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
@@ -67,6 +70,9 @@ export function setupWorkspaceTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ws = workspaceManager;
+      if (!params.path || params.content == null) {
+        return { content: [{ type: "text" as const, text: "Error: Both 'path' (string) and 'content' (string) are required." }], isError: true, details: {} };
+      }
       const absPath = resolve(ws.getProjectRoot(), params.path);
       if (ws.wouldBlockWrite(absPath)) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
@@ -103,6 +109,9 @@ export function setupWorkspaceTools(
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const ws = workspaceManager;
+      if (!params.command) {
+        return { content: [{ type: "text" as const, text: "Error: 'command' (string) is required." }], isError: true, details: {} };
+      }
       return new Promise((resolvePromise, rejectPromise) => {
         const timeout = (params.timeout ?? 30) * 1000;
         const child = spawn("bash", ["-c", params.command], { cwd: ws.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
@@ -137,6 +146,9 @@ export function setupWorkspaceTools(
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const ws = workspaceManager;
+      if (!params.package) {
+        return { content: [{ type: "text" as const, text: "Error: 'package' (string) is required." }], isError: true, details: {} };
+      }
       const mgr = params.manager || "npm";
       const cmd = mgr === "npm" ? `npm install --save-dev ${params.package}` :
                   mgr === "pip" ? `pip install ${params.package}` :
@@ -174,6 +186,9 @@ export function setupWorkspaceTools(
       expected: Type.Optional(Type.String({ description: "Expected outcome description" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      if (!params.command) {
+        return { content: [{ type: "text" as const, text: "Error: 'command' (string) is required." }], isError: true, details: {} };
+      }
       const cmd = params.command;
       return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn("bash", ["-c", cmd], { cwd: workspaceManager.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });

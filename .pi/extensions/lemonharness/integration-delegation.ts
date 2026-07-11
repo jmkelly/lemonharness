@@ -57,6 +57,9 @@ export function setupIntegrationDelegation(
       scope: Type.Optional(Type.String({ description: "Subdirectory to constrain the sub-agent's work to (e.g., '.pi/extensions/')" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (!params.task) {
+        return { content: [{ type: "text" as const, text: "Error: 'task' (string) is required." }], isError: true, details: {} };
+      }
       const id = `delegate-${++delegateCounter.value}-${Date.now().toString(36)}`;
       const task = params.task;
       const budgetMs = Math.min((params.budget_seconds || 120) * 1000, 600_000);

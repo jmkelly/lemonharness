@@ -26,6 +26,7 @@ import { setupIntegration } from "./integration";
 import { setupSearch } from "./search";
 import { setupSummary } from "./summary";
 import { setupVisualization } from "./visualization";
+import { setupHtmlViewer } from "./html-viewer";
 
 export default function (pi: ExtensionAPI) {
   setupWorkspace(pi);
@@ -35,4 +36,5 @@ export default function (pi: ExtensionAPI) {
   setupSearch(pi);
   setupSummary(pi);
   setupVisualization(pi);
+  setupHtmlViewer(pi);
 }

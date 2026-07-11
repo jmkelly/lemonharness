@@ -57,6 +57,9 @@ export function setupSearch(pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      if (!params.query) {
+        return { content: [{ type: "text" as const, text: "Error: 'query' (string) is required." }], isError: true, details: {} };
+      }
       const source = params.source || "web";
       const maxResults = Math.min(params.max_results || 5, 10);
 

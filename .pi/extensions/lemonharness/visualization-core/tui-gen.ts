@@ -140,7 +140,8 @@ export function generateTUIView(
   const timeRowStr = timeMarkers.reduce((acc, t, i) => {
     const pos = Math.round((i / (timeMarkers.length - 1)) * timelineWidth);
     const padding = Math.max(1, pos - acc.length);
-    return acc + " ".repeat(padding - t.length) + t;
+    const spaces = Math.max(0, padding - t.length);
+    return acc + " ".repeat(spaces) + t;
   }, "");
   if (timeRowStr.trim()) {
     lines.push(`│ ${timeRowStr}${" ".repeat(Math.max(0, timelineWidth - timeRowStr.length))} │`);

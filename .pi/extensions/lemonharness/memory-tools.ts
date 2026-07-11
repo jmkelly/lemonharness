@@ -143,6 +143,9 @@ export function registerMemoryTools(pi: ExtensionAPI) {
       if (!memoryState.initialized) {
         return { content: [{ type: "text" as const, text: "Memory system is not initialized yet." }], isError: true, details: {} };
       }
+      if (!params.type || !params.summary || !params.details) {
+        return { content: [{ type: "text" as const, text: "Error: 'type', 'summary', and 'details' are all required." }], isError: true, details: {} };
+      }
       const tags = params.tags ? params.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
       let enrichedDetails = params.details;
       let enrichedTags = params.tags;
@@ -180,6 +183,9 @@ export function registerMemoryTools(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       if (!memoryState.initialized) {
         return { content: [{ type: "text" as const, text: "Memory system is not initialized yet." }], isError: true, details: {} };
+      }
+      if (!params.query) {
+        return { content: [{ type: "text" as const, text: "Error: 'query' (string) is required." }], isError: true, details: {} };
       }
       const tags = params.tags ? params.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
       const result = memoryStore.retrieve({ query: params.query, tags, maxResults: params.max_results ?? 5, minConfidence: params.min_confidence ?? 0.5 });
@@ -287,6 +293,9 @@ export function registerMemoryTools(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       if (!memoryState.initialized) {
         return { content: [{ type: "text" as const, text: "Memory system is not initialized yet." }], isError: true, details: {} };
+      }
+      if (!params.summary) {
+        return { content: [{ type: "text" as const, text: "Error: 'summary' (string) is required." }], isError: true, details: {} };
       }
       const updated = await memoryStore.updateFeedbackBySummary(params.summary, params.useful);
       return {

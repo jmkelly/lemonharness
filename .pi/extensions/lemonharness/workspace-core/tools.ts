@@ -3,6 +3,9 @@
  * Extracted from workspace.ts to keep files under 400 lines.
  *
  * Uses dependency injection to avoid circular imports with workspace.ts.
+ *
+ * NOTE: This file appears to be orphaned — the actual tool setup
+ * is done via workspace-tools.ts. Keep for reference.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,6 +35,9 @@ export function setupWorkspaceTools(pi: ExtensionAPI, deps: ToolDeps) {
       overwrite: Type.Optional(Type.Boolean({ default: false })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      if (!params.path || params.content == null) {
+        return { content: [{ type: "text" as const, text: "Error: Both 'path' (string) and 'content' (string) are required." }], isError: true, details: {} };
+      }
       const absPath = resolve(ws.getProjectRoot(), params.path);
       if (ws.wouldBlockWrite(absPath)) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
@@ -72,6 +78,9 @@ export function setupWorkspaceTools(pi: ExtensionAPI, deps: ToolDeps) {
       content: Type.String({ description: "Content to append" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      if (!params.path || params.content == null) {
+        return { content: [{ type: "text" as const, text: "Error: Both 'path' (string) and 'content' (string) are required." }], isError: true, details: {} };
+      }
       const absPath = resolve(ws.getProjectRoot(), params.path);
       if (ws.wouldBlockWrite(absPath)) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
@@ -118,6 +127,9 @@ export function setupWorkspaceTools(pi: ExtensionAPI, deps: ToolDeps) {
       timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default: 30)" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      if (!params.command) {
+        return { content: [{ type: "text" as const, text: "Error: 'command' (string) is required." }], isError: true, details: {} };
+      }
       return new Promise((resolvePromise, rejectPromise) => {
         const timeout = (params.timeout ?? 30) * 1000;
         const child = spawn("bash", ["-c", params.command], { cwd: ws.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
@@ -151,6 +163,9 @@ export function setupWorkspaceTools(pi: ExtensionAPI, deps: ToolDeps) {
       manager: Type.Optional(Type.Union([Type.Literal("npm"), Type.Literal("pip"), Type.Literal("apt")], { description: "Package manager: npm, pip, or apt (default: npm)" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      if (!params.package) {
+        return { content: [{ type: "text" as const, text: "Error: 'package' (string) is required." }], isError: true, details: {} };
+      }
       const mgr = params.manager || "npm";
       const cmd = mgr === "npm" ? `npm install --save-dev ${params.package}` :
                   mgr === "pip" ? `pip install ${params.package}` :
@@ -187,6 +202,9 @@ export function setupWorkspaceTools(pi: ExtensionAPI, deps: ToolDeps) {
       expected: Type.Optional(Type.String({ description: "Expected outcome description" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      if (!params.command) {
+        return { content: [{ type: "text" as const, text: "Error: 'command' (string) is required." }], isError: true, details: {} };
+      }
       const cmd = params.command;
       return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn("bash", ["-c", cmd], { cwd: ws.getProjectRoot(), stdio: ["pipe", "pipe", "pipe"], signal });
