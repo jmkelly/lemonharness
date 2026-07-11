@@ -4,4 +4,4 @@
 
 The original task:
 
-can you confrim the DDG search actually works
+fix issue

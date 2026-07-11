@@ -1,0 +1,12 @@
+{
+  "severityTrend": [
+    0,
+    0
+  ],
+  "topThreeTrend": [
+    0,
+    0
+  ],
+  "terminationReason": "max_severity_low_two_consecutive",
+  "cyclesCompleted": 2
+}

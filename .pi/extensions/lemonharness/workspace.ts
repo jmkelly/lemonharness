@@ -726,7 +726,7 @@ export function setupWorkspace(pi: ExtensionAPI) {
               }
               if (changedFiles.length > 0) {
                 const meta = await snapshotManager.createSnapshot(snapshotId, `Auto-snapshot before: ${command.slice(0, 60)}`, changedFiles);
-                ctx.ui.notify(`📸 Auto-snapshot created: ${snapshotId} (${meta.files.length} files)`, "info");
+                ctx.ui.notify(`📸 Auto-snapshot created: ${snapshotId} (${meta.files?.length ?? 0} files)`, "info");
               }
             } catch (e) { console.error("Workspace: operation failed", e); /* snapshot not available */ }
           })();
@@ -1326,7 +1326,7 @@ export function setupWorkspace(pi: ExtensionAPI) {
       try {
         const meta = await snapshotManager.createSnapshot(snapshotId, desc, changedFiles);
         ctx.ui.notify(
-          `📸 Snapshot created: ${snapshotId}\n   ${desc}\n   ${meta.files.length} file(s) captured`,
+          `📸 Snapshot created: ${snapshotId}\n   ${desc}\n   ${meta.files?.length ?? 0} file(s) captured`,
           "info",
         );
       } catch (e: any) {
