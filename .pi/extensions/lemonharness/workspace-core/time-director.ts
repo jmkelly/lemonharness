@@ -19,7 +19,7 @@ export class TimeDirector {
 
   constructor(config?: Partial<TimeDirectorConfig>) {
     this.config = {
-      totalBudgetMs: config?.totalBudgetMs ?? 300_000,
+      totalBudgetMs: config?.totalBudgetMs ?? 600_000,
       exploreRatio: config?.exploreRatio ?? 0.3,
       implementRatio: config?.implementRatio ?? 0.6,
       validateRatio: config?.validateRatio ?? 0.9,

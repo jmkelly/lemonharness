@@ -97,7 +97,7 @@ export class HealthChecker {
     const fullState: HealthCheckState = {
       turnIndex: this.turnIndex,
       elapsedMs: state.elapsedMs ?? 0,
-      totalBudgetMs: state.totalBudgetMs ?? 300000,
+      totalBudgetMs: state.totalBudgetMs ?? 600_000,
       currentPhase: state.currentPhase ?? "explore",
       phaseProgress: state.phaseProgress ?? 0,
       totalProgress: state.totalProgress ?? 0,

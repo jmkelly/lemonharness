@@ -11,7 +11,7 @@
     },
     "timeAwareness": {
       "enabled": true,
-      "defaultBudgetMs": 900000,
+      "defaultBudgetMs": 600000,
       "exploreRatio": 0.3,
       "implementRatio": 0.6,
       "validateRatio": 0.9,

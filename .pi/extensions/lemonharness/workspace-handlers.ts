@@ -95,7 +95,7 @@ export function setupWorkspaceHandlers(
     (snapshotManager as any)["snapshotsDir"] = join(wsDir, "snapshots");
     await snapshotManager.init();
     timeDirector.start();
-    const budget = settings.timeAwareness?.defaultBudgetMs ?? 300_000;
+    const budget = settings.timeAwareness?.defaultBudgetMs ?? 600_000;
     timeDirector.setBudget(budget);
     if (settings.contextBudget?.enabled !== false) {
       const limit = settings.contextBudget?.modelContextLimit ?? 128000;
