@@ -1,3 +1,3 @@
 # Auto-Generated Spec — Review Loop
 
-review
+run through the lemon harness skills and make sure they dont error when no arguments are supplied.
