@@ -751,16 +751,41 @@ export function setupIntegration(pi: ExtensionAPI) {
   //   LemonHarness (arXiv:2606.24311)
 
   pi.registerCommand("review-loop", {
-    description: "Run a relentless review loop: implementer + reviewer alternate until diminishing returns. Usage: /review-loop <spec-path> [max-cycles]",
-    argumentHint: "<spec-path> [max-cycles=5]",
+    description: "Run a relentless review loop: implementer + reviewer alternate until diminishing returns. Usage: /review-loop [spec-path] [max-cycles]",
+    // argumentHint removed — RegisteredCommand type doesn't support it
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/);
-      const specPath = parts[0];
+      let specPath = parts[0];
       const maxCycles = Math.min(parseInt(parts[1], 10) || 5, 10);
 
+      // Auto-discover spec file when no argument is given
       if (!specPath) {
-        ctx.ui.notify("Usage: /review-loop <spec-path> [max-cycles]\n\n  spec-path: path to the specification file\n  max-cycles: max review cycles (default: 5, max: 10)", "error");
-        return;
+        const candidates = [
+          ".lemonharness/review-loop/auto-spec.md",
+          ".lemonharness/review-loop/spec.md",
+          ".lemonharness/spec.md",
+          "SPEC.md",
+          "spec.md",
+          "requirements.md",
+          "README.md",
+        ];
+        for (const candidate of candidates) {
+          const abs = resolve(ctx.cwd, candidate);
+          if (existsSync(abs)) {
+            specPath = candidate;
+            ctx.ui.notify(`📄 No spec path given — auto-discovered: ${candidate}`, "info");
+            break;
+          }
+        }
+        if (!specPath) {
+          ctx.ui.notify(
+            "No spec path given and no spec found in default locations.\n\n" +
+            "Provide a path: /review-loop <spec-path> [max-cycles]\n\n" +
+            "Searched: " + candidates.join(", "),
+            "error",
+          );
+          return;
+        }
       }
 
       const absSpecPath = resolve(ctx.cwd, specPath);

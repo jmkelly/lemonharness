@@ -42,5 +42,8 @@
   "dependencies": {
     "duck-duck-scrape": "^2.2.7",
     "fast-xml-parser": "^5.9.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

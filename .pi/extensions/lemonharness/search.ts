@@ -4,6 +4,12 @@
  * Registers a `web_search` tool that the agent can use to search
  * arXiv, the web, and Semantic Scholar for academic research.
  *
+ * Pure TypeScript implementation — no Python required.
+ * Uses:
+ *   - `duck-duck-scrape` for general web search (via DuckDuckGo)
+ *   - Built-in `fetch` + `fast-xml-parser` for arXiv API
+ *   - Built-in `fetch` for Semantic Scholar API
+ *
  * Usage from agent:
  *   web_search query="agentic memory systems 2026"
  *   web_search query="lemonharness agentic framework" source="arxiv"
@@ -11,20 +17,16 @@
  * Research mode examples:
  *   web_search query="best practices agentic systems" source="web"
  *   web_search query="memory retrieval agents" source="arxiv"
- *
- * Dependencies:
- *   Python venv at /tmp/search-env with ddgs and requests installed.
- *   Setup: python3 -m venv /tmp/search-env && /tmp/search-env/bin/pip install ddgs requests lxml
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawn } from "node:child_process";
-import { join } from "node:path";
-import { existsSync } from "node:fs";
-
-const SEARCH_SCRIPT = join(".lemonharness", "search.py");
-const PYTHON_VENV = "/tmp/search-env/bin/python3";
+import {
+  searchWeb,
+  searchArxiv,
+  searchRecent,
+  formatResults,
+} from "./search-core";
 
 export function setupSearch(pi: ExtensionAPI) {
   pi.registerTool({
@@ -48,99 +50,52 @@ export function setupSearch(pi: ExtensionAPI) {
           web: "web",
           arxiv: "arxiv",
           recent: "recent",
-        }, { description: "Search source: web (general), arxiv (academic papers), recent (2026 papers)" }),
+        }, { description: "Search source: web (general), arxiv (academic papers), recent (2026+ papers)" }),
       ),
       max_results: Type.Optional(
         Type.Number({ description: "Maximum results to return (default: 5, max: 10)" }),
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const projectRoot = _ctx.cwd;
-      // Validate search script exists
-      const scriptPath = join(projectRoot, SEARCH_SCRIPT);
-      if (!existsSync(scriptPath)) {
-        return {
-          content: [{ type: "text" as const, text: `Error: Search script not found at ${scriptPath}` }],
-          isError: true,
-          details: {},
-        };
-      }
-
-      // Validate Python venv exists
-      if (!existsSync(PYTHON_VENV)) {
-        return {
-          content: [{ type: "text" as const, text: "Error: Python venv not found. Run: python3 -m venv /tmp/search-env && /tmp/search-env/bin/pip install ddgs requests lxml" }],
-          isError: true,
-          details: {},
-        };
-      }
-
-      // Determine flag
       const source = params.source || "web";
-      let flag: string;
-      switch (source) {
-        case "arxiv": flag = "--arxiv"; break;
-        case "recent": flag = "--recent"; break;
-        default: flag = "--web"; break;
-      }
-
-      // Cap max results
       const maxResults = Math.min(params.max_results || 5, 10);
 
-      // Run search
-      return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(PYTHON_VENV, [
-          scriptPath,
-          flag,
-          params.query,
-          "--max-results",
-          String(maxResults),
-        ].filter(Boolean), {
-          cwd: projectRoot,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
+      try {
+        let results;
+        let label: string;
 
-        let stdout = "";
-        let stderr = "";
+        switch (source) {
+          case "arxiv": {
+            results = await searchArxiv(params.query, maxResults);
+            label = "arXiv";
+            break;
+          }
+          case "recent": {
+            results = await searchRecent(params.query, maxResults);
+            label = "Recent Papers";
+            break;
+          }
+          default: {
+            results = await searchWeb(params.query, maxResults);
+            label = "web";
+            break;
+          }
+        }
 
-        child.stdout?.on("data", (data: Buffer) => {
-          stdout += data.toString();
-        });
+        const text = formatResults(results, label);
 
-        child.stderr?.on("data", (data: Buffer) => {
-          stderr += data.toString();
-        });
-
-        child.on("close", (code) => {
-          // Check for deprecated package warning and strip it
-          const lines = stdout.split("\n").filter(
-            (l) => !l.includes("RuntimeWarning") && !l.includes("has been renamed"),
-          );
-
-          const output = lines.join("\n").trim();
-          const errors = stderr
-            .split("\n")
-            .filter((l) => !l.includes("RuntimeWarning") && !l.includes("has been renamed"))
-            .join("\n")
-            .trim();
-
-          const resultText = [
-            output,
-            errors ? `\n\nstderr:\n${errors}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n");
-
-          resolvePromise({
-            content: [{ type: "text" as const, text: resultText || "No results found." }],
-            details: { source, query: params.query, exitCode: code, resultLength: resultText.length },
-          });
-        });
-
-        child.on("error", (err) => {
-          rejectPromise(new Error(`Search failed: ${err.message}`));
-        });
-      });
+        return {
+          content: [{ type: "text" as const, text: text || "No results found." }],
+          details: { source, query: params.query, resultCount: results.length },
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `Search failed: ${message}` }],
+          isError: true,
+          details: { source, query: params.query },
+        };
+      }
     },
   });
 
@@ -154,7 +109,7 @@ export function setupSearch(pi: ExtensionAPI) {
       }
 
       let query = args.trim();
-      let source = "web";
+      let source: "web" | "arxiv" | "recent" = "web";
 
       if (query.startsWith("arxiv:")) {
         source = "arxiv";
@@ -166,27 +121,34 @@ export function setupSearch(pi: ExtensionAPI) {
 
       ctx.ui.notify(`🔍 Searching ${source} for: ${query}...`, "info");
 
-      const scriptPath = join(ctx.cwd, SEARCH_SCRIPT);
-      const flag = source === "arxiv" ? "--arxiv" : source === "recent" ? "--recent" : "--web";
+      try {
+        let results;
+        let label: string;
 
-      const child = spawn(PYTHON_VENV, [scriptPath, flag, query], {
-        cwd: ctx.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+        switch (source) {
+          case "arxiv": {
+            results = await searchArxiv(query, 5);
+            label = "arXiv";
+            break;
+          }
+          case "recent": {
+            results = await searchRecent(query, 5);
+            label = "Recent Papers";
+            break;
+          }
+          default: {
+            results = await searchWeb(query, 5);
+            label = "web";
+            break;
+          }
+        }
 
-      let stdout = "";
-
-      child.stdout?.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      child.on("close", () => {
-        const clean = stdout.split("\n")
-          .filter(l => !l.includes("RuntimeWarning") && !l.includes("has been renamed"))
-          .join("\n")
-          .trim();
-        ctx.ui.notify(clean.slice(0, 3000), "info");
-      });
+        const text = formatResults(results, label);
+        ctx.ui.notify(text.slice(0, 3000), "info");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(`Search failed: ${message}`, "error");
+      }
     },
   });
 }

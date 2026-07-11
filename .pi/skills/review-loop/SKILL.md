@@ -155,13 +155,24 @@ The reviewer assigns each finding a severity from 1–10:
 ## Usage
 
 ```
-/review-loop <spec-file-path> [max-cycles]
+/review-loop [spec-file-path] [max-cycles]
 ```
+
+If no spec path is given, the command auto-discovers one from these locations (in order):
+1. `.lemonharness/review-loop/auto-spec.md` — auto-generated on P3 entry
+2. `.lemonharness/review-loop/spec.md` — manual spec
+3. `.lemonharness/spec.md`
+4. `SPEC.md` or `spec.md` in project root
+5. `requirements.md`
+6. `README.md` — fallback (often describes the task)
+
+The first match is used. If none are found, the command shows an error with the searched paths.
 
 Examples:
 ```
-/review-loop .lemonharness/spec.md
-/review-loop requirements/api-spec.md 3
+/review-loop                                         # auto-discover spec
+/review-loop .lemonharness/review-loop/auto-spec.md  # explicit auto-spec
+/review-loop requirements/api-spec.md 3              # custom spec, 3 cycles max
 ```
 
 The command spawns sub-agents for each cycle and reports progress. The loop runs synchronously — the main agent waits for each cycle to complete before deciding whether to continue.
@@ -174,7 +185,7 @@ The command spawns sub-agents for each cycle and reports progress. The loop runs
 SKILL review-loop
 
 INPUTS:
-  specPath: string             // Path to spec/requirements file
+  specPath: string             // Path to spec/requirements file (optional — auto-discovered if omitted)
   maxCycles: number            // Safety valve (default: 5, max: 10)
 
 OUTPUTS:

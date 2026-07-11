@@ -43,7 +43,7 @@ async function ensureReviewLoopImports() {
       const mod = await import("./review-loop");
       ReviewLoopManager = mod.ReviewLoopManager;
       RLM_buildReviewerTask = mod.buildReviewerTask;
-      RLM_buildFinalHandoff = mod.RLM_buildFinalHandoff || mod.buildFinalHandoff;
+      RLM_buildFinalHandoff = mod.buildFinalHandoff;
     } catch { /* review-loop module not available */ }
   }
 }
