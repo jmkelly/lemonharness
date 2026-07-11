@@ -68,7 +68,7 @@ export function setupWorkspaceCommands(
     description: "Show context usage from pi's model context estimate",
     handler: async (_args, ctx) => {
       const usage = ctx.getContextUsage();
-      if (!usage || usage.tokens === null) {
+      if (!usage || usage.tokens === null || usage.percent === null) {
         ctx.ui.notify(
           "🧠 Context usage data not available yet — no assistant response has been received.\n" +
           "Run a query first so pi can report real model context usage.",
