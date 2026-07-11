@@ -14,6 +14,9 @@ export class ExecutionLogger {
   private consecutiveErrors: number = 0;
   private lastErrorType: string = "";
   private errorSequence: string[] = [];
+  private errorEpisodes: number = 0;
+  private lastEpisodeTool: string = "";
+  private retryWindowMs: number = 10_000;
 
   logToolCall(toolName: string, args: unknown, result: { content: unknown; isError?: boolean }, isError?: boolean) {
     this.trail.push({
@@ -23,6 +26,18 @@ export class ExecutionLogger {
 
     if (isError || result.isError) {
       this.consecutiveErrors++;
+      const now = Date.now();
+      // Count as a new error episode only if different tool or outside retry window
+      if (toolName !== this.lastEpisodeTool || this.errorEpisodes === 0) {
+        this.errorEpisodes++;
+        this.lastEpisodeTool = toolName;
+      } else {
+        // Same tool, within retry window — check if enough time passed
+        const lastErrorEntry = [...this.trail].reverse().find(e => e.isError);
+        if (lastErrorEntry && (now - lastErrorEntry.timestamp) > this.retryWindowMs) {
+          this.errorEpisodes++;
+        }
+      }
       this.lastErrorType = toolName;
       this.errorSequence.push(toolName);
     } else {
@@ -61,6 +76,13 @@ export class ExecutionLogger {
   getExecutionTrail(): LogEntry[] { return [...this.trail]; }
 
   getConsecutiveErrors(): number { return this.consecutiveErrors; }
+
+  /**
+   * Returns the number of distinct error episodes (retries of same tool
+   * within the retry window count as one episode). Use for aggregate
+   * error rate calculations to avoid inflation from transient retries.
+   */
+  getErrorEpisodes(): number { return this.errorEpisodes; }
 
   detectRegression(): string | null {
     if (this.errorSequence.length < 3) return null;

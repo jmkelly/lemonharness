@@ -211,12 +211,19 @@ export function setupWorkspaceCommands(
       const trail = executionLogger.getExecutionTrail();
       const totalCalls = trail.length;
       const errors = trail.filter((t: any) => t.isError).length;
+      const episodes = executionLogger.getErrorEpisodes?.() ?? errors;
+      const distinctErrors = episodes; // deduplicated retries
       const validations = trail.filter((t: any) => t.validationName).length;
       const passedValidations = trail.filter((t: any) => t.passed).length;
+      const errorRate = totalCalls > 0 ? Math.round((distinctErrors / totalCalls) * 100) : 0;
+      const rawRate = totalCalls > 0 ? Math.round((errors / totalCalls) * 100) : 0;
+      const retryRatio = errors > 0 ? Math.round(((errors - distinctErrors) / errors) * 100) : 0;
       const lines = [
         "📈 Self-Improvement Review", "──────────────────────────",
-        "", `Session stats: ${totalCalls} tool calls, ${errors} errors, ${validations} validations`,
-        errors > 0 ? `⚠  ${errors} errors detected — review with /improvement:reflect` : "✓ No errors",
+        "", `Session stats: ${totalCalls} tool calls, ${validations} validations`,
+        errors > 0
+          ? `⚠  ${distinctErrors} error episodes (${errors} raw errors, ${retryRatio}% retries) — error rate: ${errorRate}%`
+          : "✓ No errors",
         validations > 0 ? `✓ ${passedValidations}/${validations} validations passed` : "ℹ No validations run",
         "", "📋 Checklist:", "",
         "  [ ] Record failures with root cause analysis?",
