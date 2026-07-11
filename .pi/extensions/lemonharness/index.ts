@@ -27,6 +27,7 @@ import { setupSearch } from "./search";
 import { setupSummary } from "./summary";
 import { setupVisualization } from "./visualization";
 import { setupHtmlViewer } from "./html-viewer";
+import { setupCommitCommand } from "./commit-command";
 
 export default function (pi: ExtensionAPI) {
   setupWorkspace(pi);
@@ -37,4 +38,5 @@ export default function (pi: ExtensionAPI) {
   setupSummary(pi);
   setupVisualization(pi);
   setupHtmlViewer(pi);
+  setupCommitCommand(pi);
 }

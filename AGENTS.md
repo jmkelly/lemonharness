@@ -105,7 +105,10 @@ optimizations for pi:
 | `/skill:handoff` | Create a session handoff document for the next agent |
 | `/memory:status` | Show memory stats and recent events |
 | `/memory:forget <id>` | Remove a memory entry |
-| `/skill:<name>` | Load any skill (18 available) |
+| `/commit` | Smart commit: groups logical changes, infers conventional type+scope, generates messages in `<type>(<scope>): <description>` |
+| `/commit <message>` | Commit with a specific message |
+| `/commit yes` | Confirm and commit the proposed groups |
+| `/skill:<name>` | Load any skill (19 available) |
 | `/improvement:reflect` | Run structured self-reflection (auto-extracts ERL heuristics) |
 | `/improvement:review` | Review improvement history this session |
 | `/improvement:status` | Show self-improvement metrics |
