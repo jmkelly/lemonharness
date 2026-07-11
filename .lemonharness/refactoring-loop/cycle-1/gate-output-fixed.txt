@@ -13,14 +13,13 @@
   📝 .pi/extensions/lemonharness/subsystems-core/privilege-manager.ts (221 lines)
   ⚠  .pi/extensions/lemonharness/visualization.ts (761 lines, max 400)
   ⚠  .pi/extensions/lemonharness/workspace.ts (1471 lines, max 400)
-  📝 .pi/extensions/lemonharness/summary-core.ts (215 lines)
-  📝 .pi/extensions/lemonharness/memory-tools.ts (298 lines)
-  📝 .pi/extensions/lemonharness/memory.ts (230 lines)
+  ⚠  .pi/extensions/lemonharness/summary.ts (736 lines, max 400)
+  ⚠  .pi/extensions/lemonharness/memory.ts (691 lines, max 400)
   📝 .pi/extensions/lemonharness/shared.ts (328 lines)
   📝 .pi/extensions/lemonharness/memory-core/memory-store.ts (290 lines)
   ⚠  .pi/extensions/lemonharness/integration.ts (1098 lines, max 400)
   📝 .pi/extensions/lemonharness/review-loop.ts (392 lines)
-  ❌ 3 file(s) exceed 400 lines — consider splitting
+  ❌ 5 file(s) exceed 400 lines — consider splitting
 
 ─── 🏭 Extension Factory Check ───
   ✅ All extension directories have valid index.ts entry points
@@ -28,36 +27,36 @@
   ✅ All .ts files pass syntax parse check (tsc --noEmit)
 
 ─── 🔄 Cyclomatic Complexity ───
-  Checking with ESLint complexity rule...
-  ✅ All functions within complexity limits (threshold: 10)
+  ⚠  eslint found globally, but local install recommended
+  (no issues found or eslint config missing)
 
 ─── 🧹 Code Style & Lint ───
-  ✅ No lint warnings
+  ⚠  eslint not found locally. Install: npm install --save-dev eslint
 
 ─── 🧪 Tests & Coverage ───
   ✅ Test files present: 4 test file(s)
  ✓ tests/workspace-extension.test.ts > Phase Checkpoints > should retrieve recorded checkpoints 1ms
  ✓ tests/workspace-extension.test.ts > Phase Checkpoints > should return decision advantage decay factor 1ms
- ✓ tests/workspace-extension.test.ts > ExecutionLogger > should export ExecutionLogger class 1ms
+ ✓ tests/workspace-extension.test.ts > ExecutionLogger > should export ExecutionLogger class 0ms
  ✓ tests/workspace-extension.test.ts > ExecutionLogger > should log a tool call and retrieve the trail 1ms
  ✓ tests/workspace-extension.test.ts > ExecutionLogger > should track consecutive errors 1ms
- ✓ tests/workspace-extension.test.ts > ExecutionLogger > should detect regression after 3+ consecutive failures of same tool 2ms
+ ✓ tests/workspace-extension.test.ts > ExecutionLogger > should detect regression after 3+ consecutive failures of same tool 1ms
  ✓ tests/workspace-extension.test.ts > ExecutionLogger > should record confidence scores 1ms
- ✓ tests/workspace-extension.test.ts > ExecutionLogger > should clamp confidence scores to 1-5 range 1ms
- ✓ tests/workspace-extension.test.ts > ExecutionLogger > should flag scores < 3 for review 1ms
- ✓ tests/workspace-extension.test.ts > HeuristicManager (v3) > should export HeuristicManager from subsystems 50ms
+ ✓ tests/workspace-extension.test.ts > ExecutionLogger > should clamp confidence scores to 1-5 range 0ms
+ ✓ tests/workspace-extension.test.ts > ExecutionLogger > should flag scores < 3 for review 0ms
+ ✓ tests/workspace-extension.test.ts > HeuristicManager (v3) > should export HeuristicManager from subsystems 26ms
 
  Test Files  4 passed (4)
       Tests  70 passed (70)
-   Start at  14:54:24
-   Duration  1.88s (transform 597ms, setup 0ms, import 373ms, tests 2.22s, environment 1ms)
+   Start at  14:42:34
+   Duration  1.94s (transform 812ms, setup 0ms, import 594ms, tests 2.18s, environment 1ms)
   ✅ All tests pass
 
 ─── 🏷️  Type Check ───
-  ✅ TypeScript compiles without errors
+  ⚠  tsc not found. Install: npm install --save-dev typescript
 
 ═══════════════════════════════════════════════════════════════
-  Results: ● 1 passed  ✗ 3 failed  ⚠ 0 warnings
+  Results: ● 1 passed  ✗ 5 failed  ⚠ 2 warnings
 ═══════════════════════════════════════════════════════════════
 
   ❌ Quality Gate FAILED — review issues above before declaring done

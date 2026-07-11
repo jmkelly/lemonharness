@@ -1,0 +1,23 @@
+{
+  "cycle": 1,
+  "overall_result": "FAILED",
+  "failed_count": 3,
+  "warning_count": 0,
+  "categories": {
+    "file_size": {
+      "passed": false,
+      "failures": 3,
+      "details": [
+        ".pi/extensions/lemonharness/visualization.ts (761 lines, max 400)",
+        ".pi/extensions/lemonharness/workspace.ts (1471 lines, max 400)",
+        ".pi/extensions/lemonharness/integration.ts (1098 lines, max 400)"
+      ]
+    },
+    "factory": { "passed": true, "failures": 0 },
+    "syntax": { "passed": true, "failures": 0 },
+    "complexity": { "passed": true, "failures": 0 },
+    "lint": { "passed": true, "failures": 0 },
+    "tests": { "passed": true, "failures": 0 },
+    "types": { "passed": true, "failures": 0 }
+  }
+}

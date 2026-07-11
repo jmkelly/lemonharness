@@ -1,0 +1,24 @@
+{
+  "cycles": [
+    {
+      "cycle": 1,
+      "failed_count": 7,
+      "warning_count": 2,
+      "passed_count": 0,
+      "result": "FAILED",
+      "categories_failing": ["file_size", "syntax", "lint"]
+    },
+    {
+      "cycle": 2,
+      "failed_count": 4,
+      "warning_count": 0,
+      "passed_count": 1,
+      "result": "FAILED",
+      "categories_failing": ["file_size"],
+      "fixes": ["Type errors (8) fixed in memory-tools.ts", "Syntax parse check fixed in quality gate", "memory.ts split (691->3 files)", "summary.ts split (736->3 files)"]
+    }
+  ],
+  "termination_reason": "RESERVE phase — budget exhausted",
+  "final_failed_count": 4,
+  "remaining_issues": ["file_size: visualization.ts (761)", "file_size: integration.ts (1098)", "file_size: workspace.ts (1471)"]
+}

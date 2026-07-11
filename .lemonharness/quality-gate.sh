@@ -127,11 +127,33 @@ fi
 
 # ── 2b. Syntax Parse Check ──────────────────────────────────────
 # Standalone parse check that catches syntax errors before tsc.
-# Uses node --check (strips types) and is independent of type errors,
-# so parse failures don't get lost among pre-existing type issues.
+# For TypeScript: uses tsc --noEmit (proper TS parser).
+# For JavaScript: uses node --check (fast, node-native).
+# This is independent of type errors, so parse failures don't get
+# lost among pre-existing type issues.
 echo "─── ⚡ Syntax Parse Check ───"
 PARSE_BAD=0
-if command -v node &>/dev/null; then
+if [ "$LANGUAGE" = "typescript" ] && command -v npx &>/dev/null; then
+  # TypeScript: use tsc --noEmit for proper syntax + type stripping
+  TSC_OUTPUT=$(npx tsc --noEmit 2>&1 || true)
+  if [ -z "$TSC_OUTPUT" ]; then
+    echo "  ✅ All .ts files pass syntax parse check (tsc --noEmit)"
+  else
+    # Filter for actual parse/syntax errors vs type errors
+    SYNTAX_LINES=$(echo "$TSC_OUTPUT" | grep -iE "error TS[0-9]+.*parse|error TS[0-9]+.*syntax|Cannot find name|Unexpected token" | head -10 || true)
+    SYNTAX_COUNT=$(echo "$SYNTAX_LINES" | grep -c . || true)
+    if [ "$SYNTAX_COUNT" -gt 0 ]; then
+      echo "$SYNTAX_LINES"
+      echo "  ❌ $SYNTAX_COUNT syntax/parse error(s) from tsc"
+      PARSE_BAD=$SYNTAX_COUNT
+      FAILED=$((FAILED + PARSE_BAD * 10))
+    else
+      # Non-syntax errors (type errors) are handled by Type Check section
+      echo "  ✅ All .ts files pass syntax parse check"
+    fi
+  fi
+elif command -v node &>/dev/null; then
+  # JavaScript: use node --check for .js files only
   while IFS= read -r -d '' f; do
     basename_f=$(basename "$f")
     if ! node --check "$f" 2>/dev/null; then
@@ -140,15 +162,15 @@ if command -v node &>/dev/null; then
       echo "     $PARSE_ERR"
       PARSE_BAD=$((PARSE_BAD + 1))
     fi
-  done < <(find .pi/extensions -maxdepth 3 -type f -name "*.ts" -not -path "*/node_modules/*" -print0 2>/dev/null)
+  done < <(find .pi/extensions -maxdepth 3 -type f -name "*.js" -not -path "*/node_modules/*" -print0 2>/dev/null)
   if [ "$PARSE_BAD" -gt 0 ]; then
     echo "  ❌ $PARSE_BAD file(s) with parse errors"
-    FAILED=$((FAILED + PARSE_BAD * 10))  # Heavy weight — parse errors block loading
+    FAILED=$((FAILED + PARSE_BAD * 10))
   else
-    echo "  ✅ All .ts files pass syntax parse check"
+    echo "  ✅ All .js files pass syntax parse check"
   fi
 else
-  echo "  ⚠  node not found — skipping parse check"
+  echo "  ⚠  No parser available (node/tsc) — skipping parse check"
   WARNINGS=$((WARNINGS + 1))
 fi
 echo ""

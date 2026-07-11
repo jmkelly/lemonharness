@@ -40,10 +40,15 @@
     "typebox": "*"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.6",
     "duck-duck-scrape": "^2.2.7",
     "fast-xml-parser": "^5.9.3"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.63.0",
+    "@typescript-eslint/parser": "^8.63.0",
+    "eslint": "^10.7.0",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }
 }
