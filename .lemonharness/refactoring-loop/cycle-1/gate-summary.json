@@ -4,14 +4,10 @@
   "failed_count": 2,
   "warning_count": 0,
   "categories": {
-    "file_size": {
-      "passed": false,
-      "failures": 2,
-      "details": [
-        ".pi/extensions/lemonharness/workspace.ts (1471 lines, max 400)",
-        ".pi/extensions/lemonharness/integration.ts (1098 lines, max 400)"
-      ]
-    },
+    "file_size": { "passed": false, "failures": 2, "details": [
+      ".pi/extensions/lemonharness/workspace.ts (1448 lines, max 400)",
+      ".pi/extensions/lemonharness/integration.ts (1098 lines, max 400)"
+    ]},
     "factory": { "passed": true, "failures": 0 },
     "syntax": { "passed": true, "failures": 0 },
     "complexity": { "passed": true, "failures": 0 },
