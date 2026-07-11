@@ -1,14 +1,15 @@
 /**
  * LemonHarness Workspace Extension — Entry Point
- *
- * Split into sub-modules for file size compliance:
- *   workspace-tools.ts       — pi.registerTool() calls
- *   workspace-commands.ts    — pi.registerCommand() calls
- *   workspace-handlers.ts    — pi.on() event handlers
+ * Classes and types are in .pi/extensions/lib/workspace-core.ts
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { join, resolve, dirname } from "node:path";
+import { execSync, spawn } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import { mkdir, readFile, writeFile, appendFile } from "node:fs/promises";
 
 // ── Re-export all classes and types from workspace-core ──
 export * from "./workspace-core";
@@ -19,10 +20,17 @@ import {
   ExecutionLogger,
   ContextBudgetTracker,
   SnapshotManager,
-  RuleKnowledgeManager,
+  FormatGuard,
+  formatGuard,
+  pathExists,
+  formatDuration,
+  computeUnifiedDiff,
+  detectBashStateChange,
+  estimateBudgetFromPrompt,
+  sanitizePathForFile,
 } from "./workspace-core";
 
-import { getProjectRoot } from "./workspace-core";
+import { getProjectRoot, setProjectRoot, readLemonHarnessSettings, bootstrapWorkspace, RuleKnowledgeManager, TimePhaseName, SnapshotFileChange } from "./workspace-core";
 
 // Review loop auto-trigger imports (lazy — only used on P3 entry)
 export let ReviewLoopManager: any = null;
@@ -46,45 +54,54 @@ export const executionLogger = new ExecutionLogger();
 export const snapshotManager = new SnapshotManager(
   join(getProjectRoot(), ".lemonharness"),
 );
+
 export const contextBudgetTracker = new ContextBudgetTracker();
+
+// Health checker — periodically checks approach validity, budget, prerequisites
+export let healthChecker: any = null;
+
 export const ruleKnowledge = new RuleKnowledgeManager();
+
+export let previousPhase: TimePhaseName | null = null;
+export let trailInjectionCounter = 0;
 
 import { setupWorkspaceTools } from "./workspace-tools";
 import { setupWorkspaceCommands } from "./workspace-commands";
-import { setupWorkspaceHandlers, createWorkspaceHandlerState, WorkspaceHandlerState } from "./workspace-handlers";
-
-// ── Mutable Workspace State ─────────────────────────────────────────
-// Shared state object used by workspace-handlers.ts for mutations.
-// Re-export individual properties for backward compat with visualization.ts etc.
-
-const wsState = createWorkspaceHandlerState();
-
-/** @deprecated Use wsState.healthChecker instead */
-export let healthChecker: any = null;
-/** @deprecated Use wsState.sessionPromptDescription instead */
+import { setupWorkspaceHandlers } from "./workspace-handlers";
+// Stored for session summary generation
 export let sessionPromptDescription = "";
 
-// Sync the module-level export aliases with the state object.
-// Handlers mutate wsState; these aliases stay in sync for other modules.
-function syncState() {
-  healthChecker = wsState.healthChecker;
-  sessionPromptDescription = wsState.sessionPromptDescription;
-}
-syncState();
+// Review loop auto-trigger flag (prevents re-trigger per session)
+export let reviewLoopAutoTriggered = false;
+
+// Git commit tracking for auto-reflection
+export let lastKnownCommitHash: string | null = null;
+
+// Periodic task counters for turn_end automation
+export let autoReflectTurnCounter = 0;
+export let lastDistillEventCount = 0;
+
+// Flag to prevent redundant auto-commits
+export let autoCommitDone = false;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Extension Export
 // ─────────────────────────────────────────────────────────────────────────
 
 export function setupWorkspace(pi: ExtensionAPI) {
-  // Register event handlers (extracted for file size compliance)
-  setupWorkspaceHandlers(pi, wsState);
+  // ── Session Events ────────────────────────────────────────────────
 
-  // Register custom tools (extracted for file size compliance)
+  // ── Event Handlers (extracted for file size compliance) ──
+
+  const { qualityGateAlreadyTriggered } = setupWorkspaceHandlers(pi);
+
+  // ── Register Custom Tools (extracted for file size compliance) ──
+
   setupWorkspaceTools(pi, workspaceManager, executionLogger, contextBudgetTracker, snapshotManager);
 
-  // Register commands (extracted for file size compliance)
-  setupWorkspaceCommands(pi, workspaceManager, timeDirector, executionLogger, contextBudgetTracker, snapshotManager, wsState.healthChecker);
+  // ── Register Commands (extracted for file size compliance) ──
+
+  setupWorkspaceCommands(pi, workspaceManager, timeDirector, executionLogger, contextBudgetTracker, snapshotManager, healthChecker);
 
   // /skill:<name> — Manually load skill content (v3: with SaP pseudocode verification)
   pi.on("input", async (event, ctx) => {
@@ -97,6 +114,7 @@ export function setupWorkspace(pi: ExtensionAPI) {
       return { action: "handled" as const };
     }
 
+    // v3: Extract pseudocode section and verify contract
     let output = skillContent;
     try {
       const mod = await import("./subsystems");
@@ -104,6 +122,7 @@ export function setupWorkspace(pi: ExtensionAPI) {
       const pseudocodeMatch = skillContent.match(/## Pseudocode\n\n```[\s\S]*?```/);
       if (pseudocodeMatch) {
         const pseudocodeBlock = pseudocodeMatch[0];
+        // Parse the pseudocode block into a SkillContract
         const lines = pseudocodeBlock.split("\n");
         const inputs: Array<{name: string; type: string; description: string; required: boolean}> = [];
         const outputs: Array<{name: string; type: string; description: string}> = [];
@@ -140,12 +159,15 @@ export function setupWorkspace(pi: ExtensionAPI) {
       }
     } catch { /* SaP not available — show full skill content */ }
 
+    // Track skill load for context budget estimation
     contextBudgetTracker.trackSkillLoaded(skillName, skillContent);
+
     ctx.ui.notify(`${output.slice(0, 3500)}${output.length > 3500 ? "\n...(truncated)" : ""}`, "info");
     return { action: "handled" as const };
   });
 
   // ── Resources Discovery — Contribute Skills ──────────────────────
+
   pi.on("resources_discover", async (event, _ctx) => {
     return { skillPaths: [join(event.cwd, ".pi", "skills")] };
   });

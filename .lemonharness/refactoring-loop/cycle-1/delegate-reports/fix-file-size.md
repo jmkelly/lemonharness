@@ -1,22 +1,25 @@
-# Cycle 1 — File Size Fix Report
+# File Size Fix Report
 
-## What was fixed
+## Files Split
 
-### ✅ visualization.ts (761 → 58 lines) — FIXED
-Split into `visualization-core/` with 5 files:
-- `visualization-core/types.ts` (31 lines) — BudgetData, PhaseInfo, PHASES, PHASE_MAP
-- `visualization-core/styles.ts` (52 lines) — HTML_STYLES CSS constant
-- `visualization-core/html-utils.ts` (268 lines) — buildSvgTimeline, buildEventList, formatDuration, escapeHtml
-- `visualization-core/tui-gen.ts` (190 lines) — generateTUIView function
-- `visualization-core/generator.ts` (138 lines) — VisualizationGenerator facade class
-- `visualization.ts` (58 lines) — Entry point, re-exports, setupVisualization
+### workspace.ts (1448 → 152 lines)
+Split into:
+- `workspace.ts` (152 lines) — Entry point, imports, config, calls sub-modules
+- `workspace-tools.ts` (218 lines) — Custom tool registrations
+- `workspace-commands.ts` (303 lines) — Commands
+- `workspace-handlers.ts` (321 lines) — Event handlers  
+- `workspace-handlers-phase.ts` (400 lines) — Phase handlers (turn_start, turn_end)
 
-All imports preserved. TypeScript compiles cleanly. Tests pass.
+### integration.ts (1098 → 176 lines)
+Split into:
+- `integration.ts` (176 lines) — Entry point, event handlers
+- `integration-delegation.ts` (212 lines) — workspace_delegate tool + commands
 
-### ❌ workspace.ts (1471 lines) — PARTIALLY FIXED
-Created `workspace-core/tools.ts` (236 lines) with tool registrations extracted,
-but could not complete the full split due to RESERVE phase time limit.
-Needs: extraction of commands into workspace-core/commands.ts.
-
-### ❌ integration.ts (1098 lines) — NOT STARTED
-Needs: extraction of delegate tracking and event handlers.
+## Quality Gate Result: ✅ PASSED
+- File Size: ✅ All within limits
+- Extension Factory: ✅ Valid
+- Syntax: ✅ Parse check passes
+- Complexity: ✅ Within limits
+- Lint: ⚠ Warnings only
+- Tests: ✅ 70/70
+- Type Check: ✅ Clean

@@ -1,7 +1,3 @@
 # Auto-Generated Spec — Review Loop
 
-**Generated from session prompt on P3 entry**
-
-The original task:
-
-refactoring loop
+could you please fix the delegate action to run a sub agent. search for alternative solutions via the web if required, but we want somethign simple that works.
