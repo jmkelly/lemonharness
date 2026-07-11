@@ -106,10 +106,22 @@ async function main() {
       constraint ? `- ${constraint}` : '',
       context ? `\n## CONTEXT\n${context}\n` : '',
       '',
+      '## TOOLS',
+      'You have all standard tools (read, bash, write, edit, grep, find, ls) plus workspace-aware tools:',
+      '- `workspace_write` — Write file within workspace boundary',
+      '- `workspace_append` — Append to file within workspace boundary',
+      '- `workspace_exec` — Execute commands (preferred over bash for tracked work)',
+      '- `workspace_validate` — Run validation commands and record results',
+      '- `workspace_install_dep` — Install npm/pip/apt dependencies',
+      '- `workspace_create_temp` — Create temp directory',
+      '- `workspace_state` — Get workspace state summary',
+      '- `workspace_memory_record/search/stats` — Memory system',
+      '- `web_search` — Search web, arXiv, or Semantic Scholar',
+      '',
       '## WORKFLOW',
       '1. Read relevant files to understand the existing codebase',
       '2. Plan your approach',
-      '3. Implement the changes (use write/edit/bash)',
+      '3. Implement the changes (use workspace_write for file creation)',
       '4. Verify your changes work if possible',
       '',
       '## REPORTING FORMAT',
@@ -130,16 +142,12 @@ async function main() {
     log(`Prompt file: ${promptFile}`);
 
     // ── Spawn pi subprocess ────────────────────────────────────────
-    // Use print mode with minimal overhead: no session, no extensions/skills
+    // Use print mode: load LemonHarness extension and skills, but skip context files & themes
     const piArgs = [
       '-p',
       '--no-session',
-      '--no-extensions',
-      '--no-skills',
       '--no-context-files',
       '--no-themes',
-      '--no-builtin-tools',
-      '-t', 'read,bash,write,edit,grep,find,ls',
       `@${promptFile}`,
       'Complete the task above.',
     ];
@@ -183,6 +191,11 @@ async function main() {
 
     // ── Parse results ──────────────────────────────────────────────
     const { summary, files } = parseDelegateOutput(result.output);
+    const output = result.output.trim();
+
+    // Strip the structured result block from the user-facing output
+    const cleanOutput = output.replace(/=== DELEGATE RESULT ===[\s\S]*=== END ===/, '').trim()
+      || summary;
 
     // Save output files if requested
     if (outputDir) {
@@ -202,6 +215,7 @@ async function main() {
         success: false,
         summary: `Timed out after ${budgetMs}ms. ${summary.slice(0, 300)}`,
         files,
+        output: cleanOutput.slice(0, 3000),
         toolCalls: 0,
       });
     } else if (result.code !== 0) {
@@ -210,6 +224,7 @@ async function main() {
         success: false,
         summary: summary.slice(0, 500),
         files,
+        output: cleanOutput.slice(0, 5000),
         error: stderr.slice(0, 300),
         toolCalls: 0,
       });
@@ -219,6 +234,7 @@ async function main() {
         success: true,
         summary: summary.slice(0, 500),
         files,
+        output: cleanOutput,
         toolCalls: 0,
       });
     }

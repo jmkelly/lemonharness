@@ -65,10 +65,26 @@ export function setupWorkspaceCommands(
   });
 
   pi.registerCommand("lemonharness:context", {
-    description: "Show context budget estimation",
+    description: "Show context usage from pi's model context estimate",
     handler: async (_args, ctx) => {
-      const trail = executionLogger.getExecutionTrail();
-      ctx.ui.notify(contextBudgetTracker.formatStatus(contextBudgetTracker.getContextStatus(trail)), "info");
+      const usage = ctx.getContextUsage();
+      if (!usage || usage.tokens === null) {
+        ctx.ui.notify(
+          "🧠 Context usage data not available yet — no assistant response has been received.\n" +
+          "Run a query first so pi can report real model context usage.",
+          "info",
+        );
+        return;
+      }
+      const lines = [
+        "🧠 Context Usage (from pi)",
+        "──────────────────────────",
+        "",
+        `Tokens: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} (${usage.percent}%)`,
+        "",
+        "Source: pi's actual model context estimate from ctx.getContextUsage().",
+      ];
+      ctx.ui.notify(lines.join("\n"), usage.percent >= 90 ? "error" : usage.percent >= 70 ? "warning" : "info");
     },
   });
 

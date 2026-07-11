@@ -24,6 +24,7 @@ export interface DelegateRecord {
   files?: string[];
   toolCalls?: number;
   error?: string;
+  _output?: string;
 }
 
 export function setupIntegrationDelegation(
@@ -41,11 +42,11 @@ export function setupIntegrationDelegation(
     description: "Delegate a bounded sub-task to a sub-agent with its own budget and scope. " +
       "The sub-agent runs independently, reads files, makes changes, and reports back. " +
       "Use for parallelizable work, independent sub-tasks, or exploring alternative approaches.",
-    promptSnippet: "Delegate a bounded sub-task to an independent sub-agent",
+    promptSnippet: "Delegate a bounded sub-task to an independent sub-agent (LemonHarness-aware)",
     promptGuidelines: [
       "Use workspace_delegate for work that can be done independently by a sub-agent with limited budget.",
       "Be specific in the task description — include file paths, expected outcomes, and constraints.",
-      "The sub-agent has read, bash, write, and edit tools. It cannot install dependencies or access the network.",
+      "The sub-agent has all standard tools plus workspace tools (workspace_write, workspace_exec, workspace_validate, workspace_install_dep, etc.) and web_search.",
       "Check results with /lemonharness:delegates after spawning sub-agents.",
       "Use context parameter to pass relevant information the sub-agent needs.",
     ],
@@ -123,6 +124,7 @@ export function setupIntegrationDelegation(
             record.summary = result.summary?.slice(0, 500);
             record.files = result.files || [];
             record.toolCalls = result.toolCalls || 0;
+            record._output = result.output;
           } else {
             record.status = "failed";
             record.completedAt = Date.now();
@@ -151,20 +153,34 @@ export function setupIntegrationDelegation(
 
       await exitPromise;
 
-      const summary = record.summary || "Delegate completed";
-      const filesList = record.files?.length
-        ? `\n\nFiles modified: ${record.files.join(", ")}`
+      const duration = record.completedAt
+        ? `(${((record.completedAt - record.startedAt) / 1000).toFixed(0)}s)`
         : "";
-      const toolInfo = record.toolCalls ? `\nTool calls: ${record.toolCalls}` : "";
-      const errorInfo = record.error ? `\nError: ${record.error}` : "";
+      const filesList = record.files?.length
+        ? `\n\n📁 **Files modified:** ${record.files.join(", ")}`
+        : "";
 
-      const text = record.status === "completed"
-        ? `✅ Delegate [${id}] completed\n\n${summary.slice(0, 3000)}${filesList}${toolInfo}`
-        : `❌ Delegate [${id}] ${record.status}: ${record.error || "Unknown error"}\n\nPartial output: ${summary.slice(0, 1000)}`;
+      let text: string;
+      if (record.status === "completed") {
+        const output = record._output || record.summary || "Delegate completed";
+        text = [
+          `✅ **Delegate [${id}] completed** ${duration}`,
+          filesList,
+          "",
+          output.slice(0, 8000),
+        ].filter(Boolean).join("\n");
+      } else {
+        text = [
+          `❌ **Delegate [${id}] ${record.status}** ${duration}`,
+          record.error ? `\nError: ${record.error}` : "",
+          "",
+          (record._output || record.summary || "").slice(0, 3000),
+        ].filter(Boolean).join("\n");
+      }
 
       return {
         content: [{ type: "text" as const, text }],
-        details: { delegateId: id, status: record.status, summary: summary.slice(0, 500) },
+        details: { delegateId: id, status: record.status, summary: (record.summary || "").slice(0, 500) },
         isError: record.status !== "completed",
       };
     },
@@ -207,16 +223,16 @@ export function setupIntegrationDelegation(
       const d = delegates.get(id);
       if (!d) { ctx.ui.notify(`Delegate "${id}" not found.`, "error"); return; }
       const lines = [
-        `🤖 Delegate: ${d.id}`,
-        `  Task: ${d.task}`,
-        `  Status: ${d.status}`,
-        `  Budget: ${(d.budgetMs / 1000).toFixed(0)}s`,
-        `  Duration: ${d.completedAt ? ((d.completedAt - d.startedAt) / 1000).toFixed(0) + "s" : "running..."}`,
-        `  Scope: ${d.scope || "(none)"}`,
+        `🤖 **Delegate: ${d.id}**`,
+        `  **Task:** ${d.task}`,
+        `  **Status:** ${d.status}`,
+        `  **Budget:** ${(d.budgetMs / 1000).toFixed(0)}s`,
+        `  **Duration:** ${d.completedAt ? ((d.completedAt - d.startedAt) / 1000).toFixed(0) + "s" : "running..."}`,
+        `  **Scope:** ${d.scope || "(none)"}`,
       ];
-      if (d.summary) lines.push(`  Summary: ${d.summary.slice(0, 1000)}`);
-      if (d.files?.length) lines.push(`  Files: ${d.files.join(", ")}`);
-      if (d.error) lines.push(`  Error: ${d.error}`);
+      if (d.files?.length) lines.push(`  **Files:** ${d.files.join(", ")}`);
+      if (d.error) lines.push(`  **Error:** ${d.error}`);
+      if (d._output) lines.push(`\n**Output:**\n${d._output.slice(0, 3000)}`);
       ctx.ui.notify(lines.join("\n"), "info");
     },
   });
