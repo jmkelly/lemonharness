@@ -31,3 +31,7 @@ dist/
 
 # Auto-generated extension backups
 .pi/extensions-backup-*/
+
+# Review loop runtime artifacts (auto-generated per session)
+.lemonharness/review-loop/cycle-*/
+.lemonharness/review-loop/trend.json

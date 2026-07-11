@@ -10,6 +10,8 @@ import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 
+import { setupIntegrationReviewLoop } from "./integration-review-loop";
+
 import type {
   DependencyGraph, MetricsRecorder, QualityGateManager,
   HeuristicManager, PrivilegeManager, SaPVerifier,
@@ -173,4 +175,9 @@ export function setupIntegration(pi: ExtensionAPI) {
 
   // ── Delegation Tool & Commands ──────────────────────────────────
   setupIntegrationDelegation(pi, delegates, delegateCounter, "");
+
+  // ── Review Loop Command (Implementer ↔ Reviewer alternating loop) ──
+  // Research basis: ERL (arXiv:2603.24639), ASH (arXiv:2605.14211)
+  // Note: the _ctx parameter is unused — handler uses pi command-handler ctx
+  setupIntegrationReviewLoop(pi, { cwd: "" }, null, heuristicManager);
 }

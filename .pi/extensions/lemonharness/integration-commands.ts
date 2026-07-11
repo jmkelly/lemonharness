@@ -234,7 +234,5 @@ export function setupIntegrationCommands(
     },
   });
 
-  // ── /review-loop — Implementer ↔ Reviewer Loop ─────────────────────────
-  // Research basis: ERL (arXiv:2603.24639), ASH (arXiv:2605.14211),
-  //   LemonHarness (arXiv:2606.24311)
+  // Note: /review-loop is registered in integration.ts via setupIntegrationReviewLoop
 }

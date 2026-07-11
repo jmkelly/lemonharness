@@ -279,6 +279,7 @@ export function buildImplementerTask(
     `- Run workspace_validate to verify changes.`,
     `- Report a clear summary when done.`,
     ``, `## OUTPUT DIRECTORY`, `Save artifacts to \`${outputDir}/\`.`,
+    `Write all changed files using workspace_write.`,
   ].join("\n");
 }
 
@@ -315,7 +316,10 @@ export function buildReviewerTask(
     '    "max_severity": 0, "avg_severity": 0 }',
     '}', '```', ``,
     `## CATEGORIES: correctness, security, spec-violation, maintainability, performance, testing`,
-    ``, `## OUTPUT`, `Write review JSON to \`${outputDir}/review.json\`.`,
+    ``, `## OUTPUT`,
+    `1. Write your complete review JSON to \`${outputDir}/review.json\` using workspace_write.`,
+    `2. ALSO include the full review JSON content in your response text before the === DELEGATE RESULT === marker (not just in the file) — this ensures the review is captured even if the file write has issues.`,
+    `3. In the === DELEGATE RESULT === section, set FILES to include the path to review.json.`,
   ].join("\n");
 }
 
@@ -349,10 +353,10 @@ export class ReviewLoopManager {
       heuristicsExtracted: this.heuristicsCount,
     };
     const handoff = buildFinalHandoff(result, specPath, maxCycles);
-    writeFile(result.finalHandoffPath, handoff, "utf-8").catch(() => {});
+    writeFile(result.finalHandoffPath, handoff, "utf-8").catch((err: any) => console.error("🍋 Failed to write final handoff:", err));
     writeFile(join(this.outputBaseDir, "trend.json"),
       JSON.stringify({ severityTrend: result.severityTrend, topThreeTrend: result.topThreeTrend,
-        terminationReason: reason, cyclesCompleted: result.cyclesCompleted }, null, 2), "utf-8").catch(() => {});
+        terminationReason: reason, cyclesCompleted: result.cyclesCompleted }, null, 2), "utf-8").catch((err: any) => console.error("🍋 Failed to write trend.json:", err));
     return result;
   }
 
@@ -371,12 +375,12 @@ export class ReviewLoopManager {
     const entry: ReviewTrailEntry = { cycle, review: effectiveReview, maxSeverity: stats.maxSeverity, topThreeAvg: stats.topThreeAvg, rawOutput, parsedOk };
     this.trail.push(entry);
     const cycleDir = join(this.outputBaseDir, `cycle-${cycle}`);
-    mkdir(cycleDir, { recursive: true }).catch(() => {});
-    writeFile(join(cycleDir, "review.json"), JSON.stringify(effectiveReview, null, 2), "utf-8").catch(() => {});
-    writeFile(join(cycleDir, "review-raw.md"), rawOutput, "utf-8").catch(() => {});
+    mkdir(cycleDir, { recursive: true }).catch((err: any) => console.error("🍋 Failed to create cycle dir:", err));
+    writeFile(join(cycleDir, "review.json"), JSON.stringify(effectiveReview, null, 2), "utf-8").catch((err: any) => console.error("🍋 Failed to write review.json:", err));
+    writeFile(join(cycleDir, "review-raw.md"), rawOutput, "utf-8").catch((err: any) => console.error("🍋 Failed to write review-raw.md:", err));
     const prevNotes = cycle > 1 ? this.getReviewNotesForCycle(cycle) : "";
     const notes = buildReviewNotes(cycle, effectiveReview, prevNotes);
-    writeFile(join(cycleDir, "review-notes.md"), notes, "utf-8").catch(() => {});
+    writeFile(join(cycleDir, "review-notes.md"), notes, "utf-8").catch((err: any) => console.error("🍋 Failed to write review-notes.md:", err));
     return { entry, parsedOk };
   }
 

@@ -1,21 +1,82 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 
 import { ReviewLoopManager, determineTermination, detectOscillation, buildImplementerTask, buildReviewerTask, parseReviewJson, computeSeverityStats } from "./review-loop";
 
+/**
+ * Spawn a delegate via delegate-runner.mjs and return the structured result.
+ * Extracted to reduce handler complexity and allow reuse across cycles.
+ */
+async function runDelegate(
+  cwd: string,
+  task: string,
+  budgetMs: number,
+  context: string,
+  constraint?: string,
+): Promise<{ success: boolean; summary: string; output: string; files: string[] }> {
+  return new Promise<any>((resolvePromise, rejectPromise) => {
+    const child = spawn("node", [
+      join(cwd, ".lemonharness", "delegate-runner.mjs"),
+    ], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, NODE_PATH: join(cwd, "node_modules") },
+      timeout: budgetMs + 5000,
+    });
+
+    let stdout = "", stderr = "";
+    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+    const input = JSON.stringify({
+      task,
+      cwd,
+      budgetMs,
+      context: context || "",
+      constraint: constraint || "",
+    });
+
+    child.stdin?.write(input);
+    child.stdin?.end();
+
+    child.on("close", (code) => {
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      const lastLine = lines[lines.length - 1];
+      let result: any = null;
+      if (lastLine) {
+        try { result = JSON.parse(lastLine); } catch { /* not JSON */ }
+      }
+      if (result?.type === "result") {
+        resolvePromise(result);
+      } else {
+        // Fallback: include full stdout as output for parsing
+        const fallbackSummary = stdout.slice(-2000) || "Delegate completed (no structured output)";
+        resolvePromise({
+          success: code === 0,
+          summary: fallbackSummary,
+          output: stdout,
+          files: [],
+          toolCalls: 0,
+        });
+      }
+    });
+
+    child.on("error", (err) => {
+      rejectPromise(new Error(`Delegate spawn failed: ${err.message}`));
+    });
+  });
+}
+
 export function setupIntegrationReviewLoop(
   pi: ExtensionAPI,
-  ctx: { cwd: string },
+  _ctx: { cwd: string },
   reviewLoopManager: any,
   heuristicManager: any,
 ) {
   pi.registerCommand("review-loop", {
     description: "Run a relentless review loop: implementer + reviewer alternate until diminishing returns. Usage: /review-loop [spec-path] [max-cycles]",
-    // argumentHint removed — RegisteredCommand type doesn't support it
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/);
       let specPath = parts[0];
@@ -65,7 +126,7 @@ export function setupIntegrationReviewLoop(
         return;
       }
 
-      // Initialize review loop manager
+      // Initialize review loop manager (note: reviewLoopManager is reassigned from the parameter)
       reviewLoopManager = new ReviewLoopManager(ctx.cwd);
       await reviewLoopManager.init();
 
@@ -98,53 +159,12 @@ export function setupIntegrationReviewLoop(
         let implementerOk = false;
 
         try {
-          const implResult = await new Promise<any>((resolvePromise, rejectPromise) => {
-            const child = spawn("node", [
-              join(ctx.cwd, ".lemonharness", "delegate-runner.mjs"),
-            ], {
-              cwd: ctx.cwd,
-              stdio: ["pipe", "pipe", "pipe"],
-              env: { ...process.env, NODE_PATH: join(ctx.cwd, "node_modules") },
-              timeout: 120_000,
-            });
-
-            let stdout = "", stderr = "";
-            child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-            child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-            const input = JSON.stringify({
-              task: implementerTask,
-              cwd: ctx.cwd,
-              budgetMs: 120_000,
-              context: isFirstCycle ? "First implementation cycle. Build from spec." : `Review cycle ${cycle}. Fix issues from review.`,
-            });
-
-            child.stdin?.write(input);
-            child.stdin?.end();
-
-            child.on("close", (code) => {
-              const lines = stdout.trim().split("\n").filter(Boolean);
-              const lastLine = lines[lines.length - 1];
-              let result: any = null;
-              if (lastLine) {
-                try { result = JSON.parse(lastLine); } catch { /* not JSON */ }
-              }
-              if (result?.type === "result") {
-                resolvePromise(result);
-              } else {
-                resolvePromise({
-                  success: code === 0,
-                  summary: stdout.slice(-2000) || "Implementer completed (no structured output)",
-                  files: [],
-                  toolCalls: 0,
-                });
-              }
-            });
-
-            child.on("error", (err) => {
-              rejectPromise(new Error(`Implementer spawn failed: ${err.message}`));
-            });
-          });
+          const implResult = await runDelegate(
+            ctx.cwd,
+            implementerTask,
+            120_000,
+            isFirstCycle ? "First implementation cycle. Build from spec." : `Review cycle ${cycle}. Fix issues from review.`,
+          );
 
           implementerOk = implResult.success === true;
           implementerSummary = implResult.summary || "No summary available";
@@ -170,71 +190,43 @@ export function setupIntegrationReviewLoop(
 
         const reviewerTask = buildReviewerTask(specPath, specContent, cycle);
 
-        let reviewerSummary = "";
         let reviewerOk = false;
         let reviewerRawOutput = "";
 
         try {
-          const revResult = await new Promise<any>((resolvePromise, rejectPromise) => {
-            const child = spawn("node", [
-              join(ctx.cwd, ".lemonharness", "delegate-runner.mjs"),
-            ], {
-              cwd: ctx.cwd,
-              stdio: ["pipe", "pipe", "pipe"],
-              env: { ...process.env, NODE_PATH: join(ctx.cwd, "node_modules") },
-              timeout: 60_000,
-            });
-
-            let stdout = "", stderr = "";
-            child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-            child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-            const input = JSON.stringify({
-              task: reviewerTask,
-              cwd: ctx.cwd,
-              budgetMs: 60_000,
-              context: `Review cycle ${cycle}. Advisory authority only — do not modify files.`,
-              constraint: "Do NOT modify files, run install commands, or change state. Read and analyze only.",
-            });
-
-            child.stdin?.write(input);
-            child.stdin?.end();
-
-            child.on("close", (code) => {
-              const lines = stdout.trim().split("\n").filter(Boolean);
-              const lastLine = lines[lines.length - 1];
-              let result: any = null;
-              if (lastLine) {
-                try { result = JSON.parse(lastLine); } catch { /* not JSON */ }
-              }
-              if (result?.type === "result") {
-                resolvePromise(result);
-              } else {
-                resolvePromise({
-                  success: code === 0,
-                  summary: stdout.slice(-2000) || "Reviewer completed (no structured output)",
-                  files: [],
-                  toolCalls: 0,
-                });
-              }
-            });
-
-            child.on("error", (err) => {
-              rejectPromise(new Error(`Reviewer spawn failed: ${err.message}`));
-            });
-          });
+          const revResult = await runDelegate(
+            ctx.cwd,
+            reviewerTask,
+            60_000,
+            `Review cycle ${cycle}. Advisory authority only — do not modify files.`,
+            "Do NOT modify files, run install commands, or change state. Read and analyze only.",
+          );
 
           reviewerOk = revResult.success === true;
-          reviewerSummary = revResult.summary || "No summary available";
-          reviewerRawOutput = reviewerSummary;
+
+          // Priority: 1) delegate output (reviewer JSON in response text) → 2) review.json file → 3) summary
+          // The reviewer is instructed to include JSON in the response text before the === DELEGATE RESULT === marker
+          const delegateOutput = revResult.output || "";
+
+          // Also try to read review.json from disk as secondary fallback
+          const reviewJsonPath = join(ctx.cwd, ".lemonharness", "review-loop", `cycle-${cycle}`, "review.json");
+          let reviewFileContent: string | null = null;
+          try {
+            if (existsSync(reviewJsonPath)) {
+              reviewFileContent = readFileSync(reviewJsonPath, "utf-8");
+              JSON.parse(reviewFileContent);
+            }
+          } catch {
+            reviewFileContent = null;
+          }
+
+          reviewerRawOutput = delegateOutput || reviewFileContent || revResult.summary || "";
 
           ctx.ui.notify(
             `  ✅ Reviewer ${reviewerOk ? "completed" : "finished with issues"}`,
             reviewerOk ? "info" : "warning",
           );
         } catch (err: any) {
-          reviewerSummary = `Reviewer failed: ${err.message}`;
-          reviewerOk = false;
           ctx.ui.notify(`  ❌ Reviewer error: ${err.message}`, "error");
 
           if (reviewLoopManager) {
