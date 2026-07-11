@@ -709,26 +709,28 @@ export function setupWorkspace(pi: ExtensionAPI) {
       if (stateChange) {
         workspaceManager.trackProcess(command, 0);
 
-        // Auto-snapshot before destructive operations
-        if (/npm\s+install|npm\s+uninstall|rm\s+-rf|mv\s+|cp\s+|git\s+reset|git\s+clean|git\s+checkout/.test(command)) {
+        // Auto-snapshot before destructive operations — captures current file state
+        if (/rm\s+-rf|git\s+reset|git\s+clean|git\s+checkout/.test(command)) {
           (async () => {
             try {
               const state = workspaceManager.getWorkspaceState();
               const snapshotId = `auto-${Date.now()}`;
               const changedFiles: SnapshotFileChange[] = [];
+              const root = workspaceManager.getProjectRoot();
               for (const file of state.files) {
-                const absPath = resolve(ctx.cwd, file.path);
+                const absPath = resolve(root, file.path);
                 try {
                   const { readFile } = await import("node:fs/promises");
                   const content = await readFile(absPath, "utf-8");
-                  changedFiles.push({ path: file.path, oldContent: null, newContent: content, action: "modify" });
-                } catch (e) { console.error("Workspace: operation failed", e); /* file gone */ }
+                  // Save as oldContent so restore can revert to this state
+                  changedFiles.push({ path: file.path, oldContent: content, newContent: null, action: "modify" });
+                } catch { /* file gone — skip */ }
               }
               if (changedFiles.length > 0) {
-                const meta = await snapshotManager.createSnapshot(snapshotId, `Auto-snapshot before: ${command.slice(0, 60)}`, changedFiles);
-                ctx.ui.notify(`📸 Auto-snapshot created: ${snapshotId} (${meta.files?.length ?? 0} files)`, "info");
+                const meta = await snapshotManager.createSnapshot(snapshotId, `Pre-destructive: ${command.slice(0, 60)}`, changedFiles);
+                ctx.ui.notify(`📸 Pre-destructive snapshot: ${snapshotId} (${meta.files?.length ?? 0} files)`, "info");
               }
-            } catch (e) { console.error("Workspace: operation failed", e); /* snapshot not available */ }
+            } catch { /* snapshot not available */ }
           })();
         }
       }
@@ -808,24 +810,13 @@ export function setupWorkspace(pi: ExtensionAPI) {
       if (await pathExists(absPath) && !params.overwrite) {
         return { content: [{ type: "text" as const, text: `Error: File "${params.path}" already exists. Set overwrite=true to replace.` }], isError: true, details: {} };
       }
-      // Read old content for snapshot before modifying
-      let oldContent: string | null = null;
+      // Determine if file existed before write (for tracking)
       let fileExisted = false;
       if (await pathExists(absPath)) {
-        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { console.error("Workspace: operation failed"); }
+        try { await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* file inaccessible */ }
       }
       await writeFile(absPath, params.content, "utf-8");
       workspaceManager.trackFileWrite(params.path, fileExisted ? "modify" : "create");
-      // Auto-create snapshot for this change
-      try {
-        const snapshotId = `auto-${Date.now()}`;
-        await snapshotManager.createSnapshot(snapshotId, `auto: ${fileExisted ? "write" : "create"} ${params.path}`, [{
-          path: params.path,
-          oldContent,
-          newContent: params.content,
-          action: fileExisted ? "modify" : "create",
-        }]);
-      } catch (e) { console.error("Workspace: operation failed", e); /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Written ${params.path} (${params.content.length} chars)` }], details: { path: params.path, size: params.content.length } };
     },
   });
@@ -845,27 +836,13 @@ export function setupWorkspace(pi: ExtensionAPI) {
         return { content: [{ type: "text" as const, text: `Error: Path "${params.path}" is outside the workspace boundary.` }], isError: true, details: {} };
       }
       await mkdir(dirname(absPath), { recursive: true });
-      // Read old content for snapshot before modifying
-      let oldContent: string | null = null;
+      // Determine if file existed before append
       let fileExisted = false;
       if (await pathExists(absPath)) {
-        try { oldContent = await readFile(absPath, "utf-8"); fileExisted = true; } catch { console.error("Workspace: operation failed"); }
+        try { await readFile(absPath, "utf-8"); fileExisted = true; } catch { /* file inaccessible */ }
       }
       await appendFile(absPath, params.content, "utf-8");
-      // Read new content after append for snapshot diff
-      let newContent: string = "";
-      try { newContent = await readFile(absPath, "utf-8"); } catch { console.error("Workspace: operation failed"); }
       workspaceManager.trackFileWrite(params.path, "modify");
-      // Auto-create snapshot for this change
-      try {
-        const snapshotId = `auto-${Date.now()}`;
-        await snapshotManager.createSnapshot(snapshotId, `auto: append to ${params.path}`, [{
-          path: params.path,
-          oldContent,
-          newContent,
-          action: fileExisted ? "modify" : "create",
-        }]);
-      } catch (e) { console.error("Workspace: operation failed", e); /* snapshot best-effort */ }
       return { content: [{ type: "text" as const, text: `Appended to ${params.path}` }], details: { path: params.path } };
     },
   });

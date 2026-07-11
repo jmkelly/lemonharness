@@ -1,32 +1,43 @@
+# Refactoring Loop — Final Assessment
 
+**Date**: 2026-07-11
 
----
+## Summary
 
-## Cycle 2 Summary (Resumed 2026-07-11)
+| Metric | Value |
+|--------|-------|
+| Cycles completed | 1 |
+| Failed before | 3 (file size) |
+| Failed after | 2 (file size) |
+| Fixed | 1 of 3 files |
+| Termination reason | RESERVE phase — time budget exhausted |
+| TypeScript compilation | ✅ Passes |
+| Tests | ✅ 70/70 pass |
 
-### ✅ Fixed This Cycle
+## What Was Fixed
 
-| Category | Before | After | Fix |
-|---|---|---|---|
-| **Type Errors** | ❌ 8 errors | ✅ Fixed | Type assertions in `memory-tools.ts` `formatStats()` function |
-| **File Size: summary.ts** | ❌ 736 lines | ✅ 78 lines | Split into `summary.ts` (entry), `summary-core.ts` (class+types), `summary-builder.ts` (data collection) |
+| File | Before | After | Method |
+|------|--------|-------|--------|
+| `.pi/extensions/lemonharness/visualization.ts` | 761 lines | 58 lines | Split into `visualization-core/` (5 files: types.ts, styles.ts, html-utils.ts, tui-gen.ts, generator.ts) |
 
-### Remaining: 3 files still > 400 lines
+## Remaining Issues
 
-| File | Lines | Target |
-|---|---|---|
-| `.pi/extensions/lemonharness/visualization.ts` | 761 | < 400 |
-| `.pi/extensions/lemonharness/integration.ts` | 1098 | < 400 |
-| `.pi/extensions/lemonharness/workspace.ts` | 1471 | < 400 |
+| File | Lines | Target | Priority |
+|------|-------|--------|----------|
+| `.pi/extensions/lemonharness/workspace.ts` | 1471 | < 400 | 1 |
+| `.pi/extensions/lemonharness/integration.ts` | 1098 | < 400 | 2 |
 
-### Progress Summary
-- **Failed before**: 7
-- **Current**: 4 (all file size)
-- **Fixed**: Type errors (8), Syntax parse (gate fix), ESLint config, memory.ts split, summary.ts split
+## Next Steps (for next session)
 
-### Cycle 2 Termination
-Terminated in RESERVE phase due to time budget constraints. To continue next session:
-1. Run `bash .lemonharness/quality-gate.sh` to confirm current state
-2. Split `visualization.ts` first (smallest remaining at 761 lines)
-3. Then `integration.ts` (1098 lines)
-4. Finally `workspace.ts` (1471 lines) — largest, may need multiple cycles
+1. **Run quality gate** → `bash .lemonharness/quality-gate.sh` to confirm current state
+2. **Fix workspace.ts** — largest file at 1471 lines. Has `workspace-core/tools.ts` already created with tool registrations extracted but not wired in. Need to:
+   - Extract commands into `workspace-core/commands.ts`
+   - Extract turn_start handler into `workspace-core/phase-manager.ts`
+   - Wire everything in workspace.ts as thin entry point (~90 lines)
+3. **Fix integration.ts** (1098 lines) — Extract event handlers and delegate tracking
+4. **Re-run quality gate** to confirm all pass
+
+## ERL Heuristics Extracted
+
+- "When splitting large files, use `visualization-core/` directory pattern with separate files for types, styles, html-utils, tui-gen, and generator facade."
+- "Dependency injection avoids circular imports when extracting code from workspace.ts into workspace-core/."

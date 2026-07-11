@@ -1,7 +1,7 @@
 {
   "cycles": [
     {
-      "cycle": 1,
+      "cycle": 0,
       "failed_count": 7,
       "warning_count": 2,
       "passed_count": 0,
@@ -9,16 +9,26 @@
       "categories_failing": ["file_size", "syntax", "lint"]
     },
     {
-      "cycle": 2,
-      "failed_count": 4,
+      "cycle": 1,
+      "failed_count": 3,
       "warning_count": 0,
       "passed_count": 1,
       "result": "FAILED",
       "categories_failing": ["file_size"],
-      "fixes": ["Type errors (8) fixed in memory-tools.ts", "Syntax parse check fixed in quality gate", "memory.ts split (691->3 files)", "summary.ts split (736->3 files)"]
+      "fixes": ["visualization.ts split (761→58 lines into visualization-core/)"]
     }
   ],
-  "termination_reason": "RESERVE phase — budget exhausted",
-  "final_failed_count": 4,
-  "remaining_issues": ["file_size: visualization.ts (761)", "file_size: integration.ts (1098)", "file_size: workspace.ts (1471)"]
+  "current_run": {
+    "cycle": 1,
+    "from_failed": 3,
+    "to_failed": 2,
+    "fixes": ["visualization.ts (761→58 lines)"],
+    "remaining": ["workspace.ts (1471 lines)", "integration.ts (1098 lines)"]
+  },
+  "termination_reason": "RESERVE phase — budget exhausted on current cycle",
+  "final_failed_count": 2,
+  "remaining_issues": [
+    "file_size: workspace.ts (1471 lines)",
+    "file_size: integration.ts (1098 lines)"
+  ]
 }

@@ -109,8 +109,11 @@ export interface ContextStatusResult {
 
 export interface SnapshotFileEntry {
   path: string;
-  size: number;
-  mode: number;
+  action?: "create" | "modify" | "delete";
+  diffFile?: string;
+  oldContentFile?: string;
+  size?: number;
+  mode?: number;
 }
 
 export interface SnapshotMeta {

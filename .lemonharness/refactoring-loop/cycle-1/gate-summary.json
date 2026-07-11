@@ -1,14 +1,13 @@
 {
   "cycle": 1,
   "overall_result": "FAILED",
-  "failed_count": 3,
+  "failed_count": 2,
   "warning_count": 0,
   "categories": {
     "file_size": {
       "passed": false,
-      "failures": 3,
+      "failures": 2,
       "details": [
-        ".pi/extensions/lemonharness/visualization.ts (761 lines, max 400)",
         ".pi/extensions/lemonharness/workspace.ts (1471 lines, max 400)",
         ".pi/extensions/lemonharness/integration.ts (1098 lines, max 400)"
       ]
